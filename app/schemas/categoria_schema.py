@@ -5,6 +5,10 @@ class CategoriaCreate(BaseModel):
     nome: str
 
 
+class CategoriaUpdate(BaseModel):
+    nome: str | None = None
+
+
 class CategoriaResponse(BaseModel):
     id: int
     nome: str

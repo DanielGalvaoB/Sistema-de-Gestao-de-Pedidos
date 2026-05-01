@@ -11,8 +11,8 @@ preview = true
 quote-style = 'single'
 
 [tool.taskipy.tasks]
-lint = 'ruff check'
-lint_fix = 'ruff check --fix'
-format = 'ruff format'
+lint = 'ruff check .'
+lint_fix = 'ruff check . --fix'
+format = 'ruff format && ruff check . --fix'
 run = 'fastapi dev app/app.py'
 
