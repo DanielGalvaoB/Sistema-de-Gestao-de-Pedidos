@@ -19,3 +19,12 @@ class MenuResponse(BaseModel):
 
     class Config:
         orm_mode = True
+
+
+class MenuUpdate(BaseModel):
+    nome: str | None = None
+    preco: Decimal | None = None
+    descricao: str | None = None
+    url_imagem: str | None = None
+    id_categoria: int | None = None
+    id_estabelecimento: int | None = None

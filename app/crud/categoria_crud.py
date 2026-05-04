@@ -42,6 +42,7 @@ def update_categoria(db, id_categoria: int, categoria_update):
 
     return categoria
 
+
 def update_elemento_categoria(db, id_categoria: int, categoria_update):
     categoria = db.get(Categoria, id_categoria)
 
@@ -58,14 +59,15 @@ def update_elemento_categoria(db, id_categoria: int, categoria_update):
 
     return categoria
 
-#delete
-def delete_category(db, categoria_id:int):
+
+# delete
+def delete_category(db, categoria_id: int):
     categoria = db.get(Categoria, categoria_id)
-    
-    if not categoria :
+
+    if not categoria:
         return None
-    
+
     db.delete(categoria)
     db.commit()
-    
+
     return True

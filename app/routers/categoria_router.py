@@ -81,7 +81,9 @@ def elemento_categoria_update(
     categoria: CategoriaUpdate,
     db: Session = Depends(get_db),
 ):
-    db_categoria = categoria_crud.update_elemento_categoria(db, categoria_id, categoria)
+    db_categoria = categoria_crud.update_elemento_categoria(
+        db, categoria_id, categoria
+    )
 
     if not db_categoria:
         raise HTTPException(
@@ -92,19 +94,17 @@ def elemento_categoria_update(
 
 
 @router.delete(
-    path=('/{categoria_id}'),
-    status_code=status.HTTP_204_NO_CONTENT
+    path=('/{categoria_id}'), status_code=status.HTTP_204_NO_CONTENT
 )
 def delete_category(
     categoria_id: int,
     db: Session = Depends(get_db),
 ):
     deletar = categoria_crud.delete_category(db, categoria_id)
-    
+
     if not deletar:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail='category not found'
+            status_code=status.HTTP_404_NOT_FOUND, detail='category not found'
         )
-    
+
     return deletar
