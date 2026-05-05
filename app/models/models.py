@@ -59,15 +59,24 @@ class Menu(Base):
 
 class Pedido(Base):
     __tablename__ = 'pedido'
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     id_estabelecimento = Column(
-        Integer, ForeignKey('estabelecimento.id'), nullable=False
+        Integer, ForeignKey('estabelecimento.id'), nullable=False, index=True
     )
+
+    status = Column(String, default='em_preparo')  # 🔥 IMPORTANTE
     created_at = Column(DateTime, server_default=func.now())
 
     estabelecimento = relationship('Estabelecimento', back_populates='pedidos')
-    itens = relationship('ItemPedido', back_populates='pedido')
-    pagamentos = relationship('Pagamento', back_populates='pedido')
+
+    itens = relationship(
+        'ItemPedido', back_populates='pedido', cascade='all, delete-orphan'
+    )
+
+    pagamentos = relationship(
+        'Pagamento', back_populates='pedido', cascade='all, delete-orphan'
+    )
 
 
 class ItemPedido(Base):
