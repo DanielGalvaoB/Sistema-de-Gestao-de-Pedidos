@@ -1,9 +1,9 @@
+from sqlalchemy import select
 from app.models.models import Menu
 
 
-# create
 def create_menu(db, menu):
-
+    """Criar novo item de menu"""
     db_menu = Menu(
         nome=menu.nome,
         preco=menu.preco,
@@ -20,32 +20,41 @@ def create_menu(db, menu):
     return db_menu
 
 
-# read
 def list_menu(db):
+    """Listar todos os itens de menu"""
     return db.query(Menu).all()
 
 
-# update
-def update_menu(db, menu_data, id_menu: int):
-    db_menu = db.query(Menu).filter(Menu.id == id_menu).first()
+def get_menu(db, menu_id: int):
+    """Obter item de menu por ID"""
+    return db.query(Menu).filter(Menu.id == menu_id).first()
 
-    if not db_menu:
+
+def list_menu_by_categoria(db, categoria_id: int):
+    """Listar itens de menu por categoria"""
+    return db.query(Menu).filter(Menu.id_categoria == categoria_id).all()
+
+
+def update_menu(db, menu_id: int, menu_update):
+    """Atualizar item de menu"""
+    menu = db.get(Menu, menu_id)
+    if not menu:
         return None
 
-    update_data = menu_data.dict(exclude_unset=True)
+    update_data = menu_update.model_dump(exclude_unset=True)
 
-    for key, value in update_data.items():
-        setattr(db_menu, key, value)
+    for field, value in update_data.items():
+        setattr(menu, field, value)
 
     db.commit()
-    db.refresh(db_menu)
+    db.refresh(menu)
 
-    return db_menu
+    return menu
 
 
-# delete
-def menu_delete(db, id_menu: int):
-    menu = db.get(Menu, id_menu)
+def delete_menu(db, menu_id: int):
+    """Deletar item de menu"""
+    menu = db.get(Menu, menu_id)
     if not menu:
         return None
 

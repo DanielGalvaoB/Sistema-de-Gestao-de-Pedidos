@@ -3,59 +3,65 @@ from sqlalchemy.orm import Session
 
 from app.crud import menu_crud
 from app.dependencies.db_dep import get_db
-from app.models.models import Menu
-from app.schemas.menu_schema import MenuCreate, MenuResponse, MenuUpdate
+from app.schemas.menu_schema import MenuCreate, MenuUpdate, MenuResponse
 
 router = APIRouter(prefix='/menu')
 
 
 @router.post(
-    path='/', status_code=status.HTTP_201_CREATED, response_model=MenuResponse
+    path='/',
+    status_code=status.HTTP_201_CREATED,
+    response_model=MenuResponse,
 )
 def create_menu(menu: MenuCreate, db: Session = Depends(get_db)):
-    newMenu = menu_crud.create_menu(db, menu)
-    return newMenu
+    """Criar novo item de menu"""
+    return menu_crud.create_menu(db, menu)
 
 
 @router.get(
-    path='/', status_code=status.HTTP_200_OK, response_model=list[MenuResponse]
+    path='/',
+    response_model=list[MenuResponse],
+    status_code=status.HTTP_200_OK,
 )
 def list_menu(db: Session = Depends(get_db)):
-    listMenu = menu_crud.list_menu(db)
-    if not listMenu:
-        return None
-
-    return listMenu
+    """Listar todos os itens de menu"""
+    return menu_crud.list_menu(db)
 
 
 @router.get(
     path='/{menu_id}',
-    status_code=status.HTTP_200_OK,
     response_model=MenuResponse,
+    status_code=status.HTTP_200_OK,
 )
 def get_menu(menu_id: int, db: Session = Depends(get_db)):
-    get_response = db.get(Menu, menu_id)
-
-    if not get_response:
+    """Obter item de menu específico"""
+    menu = menu_crud.get_menu(db, menu_id)
+    if not menu:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='menu not found'
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Item de menu não encontrado'
         )
-    return get_response
+    return menu
 
 
-@router.patch(
+@router.put(
     path='/{menu_id}',
     response_model=MenuResponse,
     status_code=status.HTTP_200_OK,
 )
-def update_menu(menu_id: int, menu: MenuUpdate, db: Session = Depends(get_db)):
-    update = menu_crud.update_menu(db, menu, menu_id)
-
-    if not update:
+def update_menu(
+    menu_id: int,
+    menu_update: MenuUpdate,
+    db: Session = Depends(get_db)
+):
+    """Atualizar item de menu"""
+    menu = menu_crud.update_menu(db, menu_id, menu_update)
+    if not menu:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='menu not found'
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Item de menu não encontrado'
         )
-    return update
+    return menu
 
 
 @router.delete(
@@ -63,10 +69,11 @@ def update_menu(menu_id: int, menu: MenuUpdate, db: Session = Depends(get_db)):
     status_code=status.HTTP_204_NO_CONTENT,
 )
 def delete_menu(menu_id: int, db: Session = Depends(get_db)):
-    menu_delete = menu_crud.menu_delete(db, menu_id)
-
-    if not menu_delete:
+    """Deletar item de menu"""
+    result = menu_crud.delete_menu(db, menu_id)
+    if not result:
         raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='menu not found'
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail='Item de menu não encontrado'
         )
-    return menu_delete
+    return None
