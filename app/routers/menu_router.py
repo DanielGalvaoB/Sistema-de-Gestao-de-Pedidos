@@ -1,72 +1,68 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, Response, status
 
 from app.crud import menu_crud
-from app.dependencies.db_dep import get_db
-from app.models.models import Menu
-from app.schemas.menu_schema import MenuCreate, MenuResponse, MenuUpdate
+from app.dependencies.auth_dep import Admin, CurrentUser, DbSession
+from app.schemas.menu_schema import (
+    HistoricoPrecoResponse,
+    MenuCreate,
+    MenuResponse,
+    MenuUpdate,
+)
 
-router = APIRouter(prefix='/menu')
+router = APIRouter(prefix='/menu', tags=['menu'])
 
 
 @router.post(
     path='/', status_code=status.HTTP_201_CREATED, response_model=MenuResponse
 )
-def create_menu(menu: MenuCreate, db: Session = Depends(get_db)):
-    newMenu = menu_crud.create_menu(db, menu)
-    return newMenu
+def create_menu(menu: MenuCreate, db: DbSession, user: Admin):
+    return menu_crud.create_menu(db, user.id_estabelecimento, menu)
+
+
+@router.get(path='/', response_model=list[MenuResponse])
+def list_menu(
+    db: DbSession,
+    user: CurrentUser,
+    busca: str | None = None,
+    id_categoria: int | None = None,
+    disponivel: bool | None = None,
+    incluir_inativos: bool = False,
+):
+    # Sempre devolve uma lista (vazia quando nao ha produtos)
+    return menu_crud.list_menu(
+        db,
+        user.id_estabelecimento,
+        busca=busca,
+        id_categoria=id_categoria,
+        disponivel=disponivel,
+        incluir_inativos=incluir_inativos,
+    )
+
+
+@router.get(path='/{menu_id}', response_model=MenuResponse)
+def get_menu(menu_id: int, db: DbSession, user: CurrentUser):
+    return menu_crud.get_menu(db, user.id_estabelecimento, menu_id)
 
 
 @router.get(
-    path='/', status_code=status.HTTP_200_OK, response_model=list[MenuResponse]
+    path='/{menu_id}/historico-precos',
+    response_model=list[HistoricoPrecoResponse],
 )
-def list_menu(db: Session = Depends(get_db)):
-    listMenu = menu_crud.list_menu(db)
-    if not listMenu:
-        return None
-
-    return listMenu
+def historico_precos(menu_id: int, db: DbSession, user: CurrentUser):
+    return menu_crud.get_menu(
+        db, user.id_estabelecimento, menu_id
+    ).historico_precos
 
 
-@router.get(
-    path='/{menu_id}',
-    status_code=status.HTTP_200_OK,
-    response_model=MenuResponse,
-)
-def get_menu(menu_id: int, db: Session = Depends(get_db)):
-    get_response = db.get(Menu, menu_id)
-
-    if not get_response:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='menu not found'
-        )
-    return get_response
+@router.patch(path='/{menu_id}', response_model=MenuResponse)
+def update_menu(menu_id: int, menu: MenuUpdate, db: DbSession, user: Admin):
+    return menu_crud.update_menu(
+        db, user.id_estabelecimento, menu, menu_id, user.id
+    )
 
 
-@router.patch(
-    path='/{menu_id}',
-    response_model=MenuResponse,
-    status_code=status.HTTP_200_OK,
-)
-def update_menu(menu_id: int, menu: MenuUpdate, db: Session = Depends(get_db)):
-    update = menu_crud.update_menu(db, menu, menu_id)
-
-    if not update:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='menu not found'
-        )
-    return update
-
-
-@router.delete(
-    path='/{menu_id}',
-    status_code=status.HTTP_204_NO_CONTENT,
-)
-def delete_menu(menu_id: int, db: Session = Depends(get_db)):
-    menu_delete = menu_crud.menu_delete(db, menu_id)
-
-    if not menu_delete:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail='menu not found'
-        )
-    return menu_delete
+@router.delete(path='/{menu_id}', status_code=status.HTTP_204_NO_CONTENT)
+def delete_menu(menu_id: int, db: DbSession, user: Admin, response: Response):
+    """Exclui produtos nunca vendidos; os ja vendidos sao desativados."""
+    resultado = menu_crud.menu_delete(db, user.id_estabelecimento, menu_id)
+    response.headers['X-Resultado'] = resultado

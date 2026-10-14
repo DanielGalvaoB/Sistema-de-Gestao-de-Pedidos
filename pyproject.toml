@@ -1,18 +1,33 @@
 [tool.ruff]
 line-length = 79
-extend-exclude = ['migrations']
+extend-exclude = ['migrations', 'alembic/versions', 'frontend']
 
 [tool.ruff.lint]
 preview = true
 select = ['I', 'F', 'E', 'W', 'PL', 'PT']
 
+[tool.ruff.lint.per-file-ignores]
+# Testes usam status HTTP literais e linhas longas de payload
+'tests/**' = ['PLR2004', 'E501', 'PLC0415', 'PT018']
+
+[tool.ruff.lint.pylint]
+# Rotas FastAPI recebem filtros como parametros
+max-args = 10
+max-positional-args = 10
+max-locals = 25
+
 [tool.ruff.format]
 preview = true
 quote-style = 'single'
+
+[tool.pytest.ini_options]
+testpaths = ['tests']
+pythonpath = '.'
 
 [tool.taskipy.tasks]
 lint = 'ruff check .'
 lint_fix = 'ruff check . --fix'
 format = 'ruff format && ruff check . --fix'
 run = 'fastapi dev app/app.py'
-
+test = 'pytest -q'
+migrate = 'alembic upgrade head'

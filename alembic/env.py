@@ -17,14 +17,21 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-import os
-import sys
+import os  # noqa: E402
+import sys  # noqa: E402
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from app.database import Base
+from app.config import settings  # noqa: E402
+from app.database import Base  # noqa: E402
+from app.models import models  # noqa: E402, F401  (registra as tabelas)
 
 target_metadata = Base.metadata
+
+# A URL vem da variavel de ambiente DATABASE_URL (ou .env), salvo quando
+# ja foi definida programaticamente (ex.: testes).
+if not config.attributes.get('url_definida'):
+    config.set_main_option('sqlalchemy.url', settings.DATABASE_URL)
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
@@ -50,6 +57,7 @@ def run_migrations_offline() -> None:
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={'paramstyle': 'named'},
+        render_as_batch=True,
     )
 
     with context.begin_transaction():
@@ -71,7 +79,9 @@ def run_migrations_online() -> None:
 
     with connectable.connect() as connection:
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=target_metadata,
+            render_as_batch=True,  # necessario para ALTER TABLE no SQLite
         )
 
         with context.begin_transaction():

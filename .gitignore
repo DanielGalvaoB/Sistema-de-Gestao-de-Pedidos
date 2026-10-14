@@ -4,7 +4,7 @@
 
 # =========================
 
-**pycache**/
+__pycache__/
 *.py[cod]
 *$py.class
 
@@ -101,3 +101,7 @@ dist/
 # =========================
 
 pip-wheel-metadata/
+
+# Frontend
+node_modules/
+frontend/dist/

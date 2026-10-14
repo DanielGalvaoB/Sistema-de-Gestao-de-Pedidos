@@ -1,69 +1,57 @@
-from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy.orm import Session
+from fastapi import APIRouter, HTTPException, status
 
-from app.crud import estabelecimento_crud
-from app.dependencies.db_dep import get_db
+from app.crud import estabelecimento_crud, mesa_crud
+from app.dependencies.auth_dep import Admin, CurrentUser, DbSession
 from app.schemas.estabelecimento_schema import (
     EstabelecimentoCreate,
     EstabelecimentoResponse,
     EstabelecimentoUpdate,
 )
+from app.schemas.mesa_schema import QrCodeResponse
 
-router = APIRouter(prefix='/estabelecimentos')
+router = APIRouter(prefix='/estabelecimentos', tags=['estabelecimentos'])
 
 
 @router.post(
-    path="/", 
+    path='/',
     response_model=EstabelecimentoResponse,
-    status_code=status.HTTP_201_CREATED)
-def create(data: EstabelecimentoCreate, db: Session = Depends(get_db)):
-    est = estabelecimento_crud.create_estabelecimento(db, data)
+    status_code=status.HTTP_201_CREATED,
+)
+def create(data: EstabelecimentoCreate, db: DbSession):
+    """Cadastro publico: cria o estabelecimento e o usuario administrador."""
+    return estabelecimento_crud.create_estabelecimento(db, data)
 
-    if not est:
-        raise HTTPException(
-            status_code=400,
-            detail="Email já cadastrado"
-        )
 
-    return est
-
-@router.get(    
-    path='/', 
-    response_model=list[EstabelecimentoResponse],
-    status_code=status.HTTP_200_OK
+@router.get('/me', response_model=EstabelecimentoResponse)
+def get_me(db: DbSession, user: CurrentUser):
+    return estabelecimento_crud.get_estabelecimento(
+        db, user.id_estabelecimento
     )
-def list_all(db: Session = Depends(get_db)):
-    return estabelecimento_crud.list_estabelecimentos(db)
+
+
+@router.get('/me/qrcode', response_model=QrCodeResponse)
+def qrcode_geral(db: DbSession, user: CurrentUser):
+    est = estabelecimento_crud.get_estabelecimento(db, user.id_estabelecimento)
+    return QrCodeResponse(
+        url=mesa_crud.url_cardapio(est.slug),
+        descricao='Cardapio geral (balcao / retirada)',
+    )
 
 
 @router.get('/{id}', response_model=EstabelecimentoResponse)
-def get(id: int, db: Session = Depends(get_db)):
-    est = estabelecimento_crud.get_estabelecimento(db, id)
-
-    if not est:
-        raise HTTPException(404, 'not found')
-
-    return est
+def get(id: int, db: DbSession, user: CurrentUser):
+    if id != user.id_estabelecimento:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'not found')
+    return estabelecimento_crud.get_estabelecimento(db, id)
 
 
 @router.patch(
-    path='/{id}', 
+    path='/{id}',
     response_model=EstabelecimentoResponse,
-    status_code=status.HTTP_200_OK)
-def update(
-    id: int, data: EstabelecimentoUpdate, db: Session = Depends(get_db)
-):
-    updated = estabelecimento_crud.update_estabelecimento(db, id, data)
-
-    if not updated:
-        raise HTTPException(404, 'not found')
-
-    return updated
-
-
-@router.delete('/{id}', status_code=204)
-def delete(id: int, db: Session = Depends(get_db)):
-    deleted = estabelecimento_crud.delete_estabelecimento(db, id)
-
-    if not deleted:
-        raise HTTPException(404, 'not found')
+    status_code=status.HTTP_200_OK,
+)
+def update(id: int, data: EstabelecimentoUpdate, db: DbSession, user: Admin):
+    if id != user.id_estabelecimento:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'not found')
+    est = estabelecimento_crud.get_estabelecimento(db, id)
+    return estabelecimento_crud.update_estabelecimento(db, est, data)
