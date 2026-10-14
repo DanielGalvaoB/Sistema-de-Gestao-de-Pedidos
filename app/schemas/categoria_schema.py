@@ -1,17 +1,31 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from app.schemas.common import NonEmptyStr, ORMModel
 
 
 class CategoriaCreate(BaseModel):
-    nome: str
+    nome: NonEmptyStr = Field(max_length=80)
+    ordem: int = 0
+
+
+class CategoriaPut(BaseModel):
+    """Substituicao completa (PUT): todos os campos obrigatorios."""
+
+    nome: NonEmptyStr = Field(max_length=80)
+    ordem: int = 0
+    ativo: bool = True
 
 
 class CategoriaUpdate(BaseModel):
-    nome: str | None = None
+    """Atualizacao parcial (PATCH)."""
+
+    nome: NonEmptyStr | None = Field(default=None, max_length=80)
+    ordem: int | None = None
+    ativo: bool | None = None
 
 
-class CategoriaResponse(BaseModel):
+class CategoriaResponse(ORMModel):
     id: int
     nome: str
-
-    class Config:
-        orm_mode = True
+    ordem: int
+    ativo: bool
