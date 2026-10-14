@@ -244,7 +244,12 @@ def _categoria_vendas(db: Session, id_estab: int) -> CategoriaFinanceira:
 
 
 def registrar_pagamento(
-    db: Session, id_estab: int, sessao_id: int, data, user_id: int
+    db: Session,
+    id_estab: int,
+    sessao_id: int,
+    data,
+    user_id: int,
+    id_pedido: int | None = None,
 ) -> tuple[Pagamento, bool]:
     """Registra um pagamento manual. Retorna (pagamento, criado)."""
     existente = db.scalar(
@@ -273,6 +278,7 @@ def registrar_pagamento(
     pagamento = Pagamento(
         id_estabelecimento=id_estab,
         id_sessao=sessao.id,
+        id_pedido=id_pedido,
         valor=valor,
         metodo=data.metodo,
         status='confirmado',
@@ -287,11 +293,12 @@ def registrar_pagamento(
         db.flush()
         # Receita entra no financeiro somente quando ha recebimento
         mesa = f'mesa {sessao.mesa.numero}' if sessao.mesa else sessao.tipo
+        ref = f'pedido #{id_pedido}' if id_pedido else f'conta #{sessao.id}'
         db.add(
             MovimentacaoFinanceira(
                 id_estabelecimento=id_estab,
                 tipo='entrada',
-                descricao=f'Recebimento conta #{sessao.id} ({mesa})',
+                descricao=f'Recebimento {ref} ({mesa})',
                 id_categoria=_categoria_vendas(db, id_estab).id,
                 valor=valor,
                 data_hora=pagamento.data_hora,
@@ -324,6 +331,7 @@ def registrar_pagamento(
             return repetido, False
         raise ConflictError('Nao foi possivel registrar o pagamento') from exc
     db.refresh(pagamento)
+    realtime.notificar(id_estab)
     return pagamento, True
 
 

@@ -6,7 +6,9 @@ Sistema para restaurantes e lanchonetes com:
 - Painel da cozinha (KDS) em tempo real.
 - Contas por mesa com pagamentos parciais.
 - Cobrança PIX (BR Code).
-- Controle financeiro e relatórios.
+- Controle do que entra (recebimentos) e relatórios de vendas.
+
+O sistema não controla gastos do estabelecimento: só os pedidos e o dinheiro que entra.
 
 | Camada   | Tecnologias |
 | -------- | ----------- |
@@ -59,7 +61,7 @@ O Vite encaminha `/api/*` (inclusive WebSocket) para `http://127.0.0.1:8000`.
 
 1. Rode `npm run dev` (ele já usa `--host`).
 2. No `.env` do backend, defina `FRONTEND_URL=http://<IP-do-PC>:5173`. Esse endereço vai nos QR Codes.
-3. Imprima os QR Codes em **Mesas → QR Code**.
+3. Imprima os QR Codes em **Mesas > QR Code**.
 
 ### Usuários de demonstração (`scripts/seed_demo.py`)
 
@@ -77,7 +79,7 @@ Cardápio público da demo: `http://localhost:5173/c/lanchonete-demo`.
 ### Testes e qualidade
 
 ```bash
-pytest -q          # 56 testes (API, regras de negócio, migrações, WebSocket)
+pytest -q          # testes de API, regras de negócio, migrações, uploads e WebSocket
 ruff check .
 cd frontend && npm run build   # type-check + build de produção
 ```
@@ -95,6 +97,8 @@ cd frontend && npm run build   # type-check + build de produção
 | `CORS_ORIGINS`                | `http://localhost:5173,...`    | Origens permitidas, separadas por vírgula |
 | `FRONTEND_URL`                | `http://localhost:5173`        | Base dos links dos QR Codes |
 | `APP_TIMEZONE`                | `America/Sao_Paulo`            | Fuso usado nos relatórios por dia |
+| `UPLOAD_DIR`                  | `./uploads`                    | Pasta das fotos dos produtos (servida em `/uploads`) |
+| `MAX_UPLOAD_MB`               | `5`                            | Tamanho máximo de cada foto |
 
 Frontend (`frontend/.env`):
 
@@ -110,7 +114,7 @@ Frontend (`frontend/.env`):
 | Administrador | Tudo, incluindo usuários, configurações, produtos e mesas |
 | Atendente     | Pedidos, mesas, contas e pagamentos. Pode lançar acréscimos, mas **não** dá desconto |
 | Cozinha       | Painel da cozinha: ver pedidos e alterar status e previsão |
-| Financeiro    | Movimentações, relatórios, contas, pagamentos e descontos |
+| Financeiro    | Recebimentos, relatórios, contas, pagamentos e descontos |
 
 As rotas `/public/*` não exigem login: cardápio, envio de pedido e acompanhamento. Senhas são guardadas com bcrypt e nunca aparecem nas respostas da API.
 
@@ -125,14 +129,14 @@ Documentação interativa completa em `http://127.0.0.1:8000/docs`. O botão **A
 | Método | Rota | Descrição |
 | --- | --- | --- |
 | POST | `/estabelecimentos/` | Cadastro público: cria a loja e o usuário admin |
-| POST | `/auth/login` | `{email, password}` → `{access_token}` |
+| POST | `/auth/login` | `{email, password}`, devolve `{access_token}` |
 | POST | `/auth/token` | Mesmo login, no formato OAuth2 (form) |
 | GET | `/auth/me` | Usuário logado |
 | GET/POST | `/usuarios/` | Listar/criar usuários (admin) |
 | PATCH | `/usuarios/{id}` | Editar perfil, ativo ou senha (a senha é gravada com hash) |
 | PATCH | `/usuarios/me/senha` | Trocar a própria senha |
 | GET | `/estabelecimentos/me` | Dados e configurações da loja |
-| PATCH | `/estabelecimentos/{id}` | Atualizar a loja (email duplicado → 409) |
+| PATCH | `/estabelecimentos/{id}` | Atualizar a loja (email duplicado: 409) |
 | GET | `/estabelecimentos/me/qrcode` | URL do cardápio geral |
 
 ### Cardápio
@@ -148,6 +152,8 @@ Documentação interativa completa em `http://127.0.0.1:8000/docs`. O botão **A
 | POST | `/menu/` | Criar produto |
 | PATCH | `/menu/{id}` | Editar. Mudança de preço vai para o histórico |
 | GET | `/menu/{id}/historico-precos` | Histórico de preços |
+| POST | `/menu/{id}/imagem` | Envia a foto do produto (multipart, campo `arquivo`; JPG, PNG ou WebP até `MAX_UPLOAD_MB`). O servidor valida, reduz para 1200 px e grava como WebP |
+| DELETE | `/menu/{id}/imagem` | Remove a foto |
 | DELETE | `/menu/{id}` | Exclui o produto; se já foi vendido, apenas desativa |
 
 ### Mesas, pedidos e cozinha
@@ -164,7 +170,8 @@ Documentação interativa completa em `http://127.0.0.1:8000/docs`. O botão **A
 | GET | `/pedidos/{id}` | Detalhe com histórico de status |
 | PATCH | `/pedidos/{id}/status` | Status do pedido inteiro |
 | PATCH | `/pedidos/{id}/itens/{item}/status` | Status de um item |
-| PATCH | `/pedidos/{id}/previsao` | `{minutos_adicionais, motivo_atraso}` |
+| PATCH | `/pedidos/{id}/previsao` | Informa um imprevisto: `{minutos_adicionais, motivo_atraso}` (minutos a partir de agora) |
+| POST | `/pedidos/{id}/pagamentos` | Confirma o pagamento de um pedido **pronto ou entregue**: `{metodo, valor?, chave_idempotencia}`. Sem `valor`, quita o saldo do pedido |
 | WS | `/ws/pedidos?token=` | Avisa os clientes quando há mudanças |
 
 Exemplo de pedido:
@@ -180,7 +187,7 @@ O preço **sempre** vem do banco. Valores enviados pelo cliente são ignorados.
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
-| GET/POST | `/contas/` | Listar contas (`?status=aberta`) ou abrir uma conta |
+| GET/POST | `/contas/` | Listar contas (`?status=aberta&com_pedidos=true`) ou abrir uma conta |
 | GET | `/contas/{id}` | Pedidos, pagamentos e resumo (subtotal, desconto, acréscimo, total, pago, saldo) |
 | PATCH | `/contas/{id}/ajustes` | Desconto (com motivo), acréscimo ou taxa de serviço |
 | POST | `/contas/{id}/solicitar-fechamento` | Mesa passa a "aguardando pagamento" |
@@ -196,15 +203,15 @@ POST /contas/1/pagamentos
 { "valor": "30.00", "metodo": "dinheiro", "chave_idempotencia": "b6c1e0f2-..." }
 ```
 
-### Financeiro e relatórios
+### Recebimentos e relatórios
 
 | Método | Rota | Descrição |
 | --- | --- | --- |
-| GET/POST/PATCH | `/financeiro/categorias` | Categorias financeiras |
-| GET/POST | `/financeiro/movimentacoes` | Listar (filtros: período, tipo, categoria, método, status) e lançar |
-| PATCH | `/financeiro/movimentacoes/{id}` | Editar lançamento manual |
+| GET/POST/PATCH | `/financeiro/categorias` | Categorias de entrada ("Vendas" é do sistema) |
+| GET/POST | `/financeiro/movimentacoes` | Lista os recebimentos (filtros: período, categoria, forma, status) e lança outra entrada. Só aceita entradas |
+| PATCH | `/financeiro/movimentacoes/{id}` | Editar uma entrada manual |
 | POST | `/financeiro/movimentacoes/{id}/cancelar` | Cancelar com motivo (fica no histórico) |
-| GET | `/relatorios/resumo?inicio=&fim=` | Indicadores, série diária e rankings |
+| GET | `/relatorios/resumo?inicio=&fim=` | Vendas, recebido, outras entradas, a receber, ticket médio, série diária e rankings |
 | GET | `/relatorios/extrato.csv` / `.pdf` | Exportação do extrato |
 
 ### Público (sem login)
@@ -212,8 +219,9 @@ POST /contas/1/pagamentos
 | Método | Rota | Descrição |
 | --- | --- | --- |
 | GET | `/public/{slug}?mesa={token}` | Cardápio (categorias e produtos ativos) |
-| POST | `/public/{slug}/pedidos` | Envia o pedido e devolve `codigo_acompanhamento` |
+| POST | `/public/{slug}/pedidos` | Envia o pedido e devolve `codigo_acompanhamento`. Com `codigo_origem` (código de um pedido anterior), entra na mesma conta da pessoa ou mesa |
 | GET | `/public/pedidos/{codigo}` | Acompanhamento sem dados pessoais |
+| GET | `/public/pedidos/{codigo}/conta` | Todos os pedidos da mesma conta e o total, sem dados pessoais |
 
 ---
 
@@ -222,11 +230,17 @@ POST /contas/1/pagamentos
 - **Preço congelado.** Cada item do pedido guarda o nome e o preço do momento da compra. Alterar o produto não muda pedidos antigos.
 - **Transações.** Um pedido e seus itens são gravados juntos. Se um item for inválido, nada é gravado.
 - **Status por item.** O pedido só fica "pronto" quando todos os itens ativos estão prontos. Existe uma exceção explícita: o botão "Tudo pronto" da cozinha marca todos os itens ativos.
-- **Atraso.** O prazo previsto é o maior tempo de preparo entre os itens do pedido (ou o padrão da loja).
-  - O alerta aparece a partir do percentual configurado.
-  - O atraso de cada item é calculado separadamente.
-  - Ao atualizar a previsão, o motivo informado aparece para o cliente.
-- **Contas.** Uma mesa tem no máximo uma conta aberta (garantido por índice único parcial). Balcão e retirada geram uma conta por cliente.
+- **Pedir mais pela página do pedido.** A página de acompanhamento tem as abas **Meus pedidos** e **Cardápio**. Novos pedidos feitos ali entram na mesma conta, sem pedir o nome de novo.
+  - O vínculo usa o código secreto do pedido.
+  - O aparelho lembra o último pedido: ao reabrir o cardápio pelo QR Code, a aba "Meus pedidos" continua disponível enquanto a conta estiver aberta.
+  - Se a conta já foi encerrada, o novo pedido abre outra conta: a da mesa, ou uma nova com o mesmo nome no balcão ou retirada.
+- **Previsão só em imprevistos.** Não há previsão automática. Quando ocorre um imprevisto, a cozinha usa **Informar imprevisto** e define em quantos minutos, a partir de agora, o pedido fica pronto, com o motivo.
+  - O cliente vê a nova previsão e o motivo na página de acompanhamento.
+  - Faltando 5 minutos ou menos, o pedido entra em alerta. Passado o horário, fica atrasado, assim como os itens ainda não prontos.
+  - Os campos antigos de tempo de preparo (`menu.tempo_preparo_min`, `estabelecimento.tempo_preparo_padrao_min` e `alerta_atraso_percentual`) continuam no banco, mas não são mais usados. Foram mantidos para não apagar dados sem autorização.
+- **Contas.** Todo pedido abre ou reaproveita a conta automaticamente: a da mesa, ou uma conta própria para balcão e retirada. Uma mesa tem no máximo uma conta aberta (garantido por índice único parcial). No **Caixa**, cada conta aparece como um cartão com pedidos, itens, status e saldo; tocar no cartão abre a conta.
+- **Confirmação de pagamento do pedido.** Quando o pedido fica pronto, cozinha, painel, conta e lista de pedidos mostram **Confirmar pagamento**. O operador escolhe a forma (dinheiro, crédito, débito, PIX ou outro), o valor (parcial ou total) e, em dinheiro, o troco. Pagar a conta inteira também quita os pedidos dela.
+- **Somente entradas.** Não existem saídas nem despesas. Os pagamentos dos pedidos entram automaticamente, e outras entradas, como valores recebidos fora dos pedidos, podem ser lançadas à mão. Categorias de saída criadas em versões anteriores continuam no banco, mas não aparecem nem são aceitas.
 - **Pagamentos.**
   - Nunca ultrapassam o saldo.
   - A `chave_idempotencia` evita duplicidade em cliques repetidos.
@@ -237,7 +251,7 @@ POST /contas/1/pagamentos
 - **Critérios dos relatórios** (as métricas não se misturam):
   - **Vendas:** pela data do pedido, valor bruto dos itens.
   - **Recebido:** pela data do pagamento.
-  - **Despesas:** pela data da movimentação.
+  - **Outras entradas:** entradas manuais, pela data do lançamento.
   - **A receber:** saldo das contas abertas no período.
 
 ---

@@ -1,8 +1,10 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.core.errors import register_exception_handlers
+from app.core.imagens import PREFIXO_URL, pasta_uploads
 from app.routers import (
     auth_router,
     categoria_router,
@@ -44,6 +46,10 @@ app.include_router(financeiro_router.router)
 app.include_router(relatorios_router.router)
 app.include_router(public_router.router)
 app.include_router(ws_router.router)
+
+
+# Imagens dos produtos (somente arquivos regravados pelo servidor)
+app.mount(PREFIXO_URL, StaticFiles(directory=pasta_uploads()), name='uploads')
 
 
 @app.get('/health', tags=['infra'])

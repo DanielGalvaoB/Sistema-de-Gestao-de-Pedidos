@@ -11,7 +11,6 @@ from app.schemas.conta_schema import (
     PagamentoResponse,
     SessaoCreate,
     SessaoDetalhe,
-    SessaoResponse,
 )
 
 router = APIRouter(prefix='/contas', tags=['contas e pagamentos'])
@@ -26,15 +25,20 @@ def _detalhe(sessao, estab):
     return dados
 
 
-@router.get('/', response_model=list[SessaoResponse])
+@router.get('/', response_model=list[SessaoDetalhe])
 def list_contas(
     db: DbSession,
     user: Caixa,
     status_: list[str] | None = Query(default=None, alias='status'),
+    com_pedidos: bool = False,
 ):
+    """Lista contas. Com `com_pedidos=true` traz os pedidos e pagamentos."""
+    sessoes = conta_crud.list_sessoes(db, user.id_estabelecimento, status_)
+    if com_pedidos:
+        return [_detalhe(s, user.estabelecimento) for s in sessoes]
     return [
-        conta_crud.sessao_to_dict(s)
-        for s in conta_crud.list_sessoes(db, user.id_estabelecimento, status_)
+        {**conta_crud.sessao_to_dict(s), 'pedidos': [], 'pagamentos': []}
+        for s in sessoes
     ]
 
 

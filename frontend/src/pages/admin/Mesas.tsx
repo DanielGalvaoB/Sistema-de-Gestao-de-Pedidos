@@ -1,3 +1,4 @@
+import { Armchair, Copy, Pencil, Plus, Printer, QrCode, RefreshCw, Users } from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useState, type FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
@@ -47,7 +48,15 @@ export default function Mesas() {
   return (
     <div>
       <div className="pagina-topo">
-        <h1>Mesas e contas</h1>
+        <div className="pagina-titulo">
+          <span className="pagina-icone">
+            <Armchair size={22} strokeWidth={1.75} />
+          </span>
+          <div>
+            <h1>Mesas</h1>
+            <p className="muted small">Toque em uma mesa para abrir ou ver a conta</p>
+          </div>
+        </div>
         <div className="acoes">
           <label className="toggle">
             <input type="checkbox" checked={incluirInativas} onChange={(e) => setIncluirInativas(e.target.checked)} />
@@ -55,7 +64,7 @@ export default function Mesas() {
           </label>
           {pode() && (
             <button className="btn btn-primario" onClick={() => setEditando('nova')}>
-              + Nova mesa
+              <Plus size={16} /> Nova mesa
             </button>
           )}
         </div>
@@ -71,7 +80,14 @@ export default function Mesas() {
         {mesas?.map((m) => (
           <div key={m.id} className={`mesa-card mesa-${m.ativo ? m.situacao : 'inativa'}`}>
             <button className="mesa-principal" onClick={() => m.ativo && abrirConta(m)} disabled={!m.ativo}>
-              <span className="mesa-numero">Mesa {m.numero}</span>
+              <span className="mesa-numero">
+                Mesa {m.numero}
+                {m.capacidade && (
+                  <span className="mesa-capacidade">
+                    <Users size={12} /> {m.capacidade}
+                  </span>
+                )}
+              </span>
               {m.ativo ? <Badge status={m.situacao} /> : <Badge status="cancelado">Desativada</Badge>}
               {m.id_sessao && (
                 <span className="mesa-info">
@@ -82,11 +98,11 @@ export default function Mesas() {
             </button>
             <div className="mesa-acoes">
               <button className="btn btn-sm" onClick={() => verQr(m)}>
-                QR Code
+                <QrCode size={14} /> QR Code
               </button>
               {pode() && (
                 <button className="btn btn-sm" onClick={() => setEditando(m)}>
-                  Editar
+                  <Pencil size={14} /> Editar
                 </button>
               )}
             </div>
@@ -176,7 +192,7 @@ function ModalMesa({
         <div className="form-actions">
           {mesa && (
             <button type="button" className="btn btn-perigo-sutil" onClick={() => onRegenerar(mesa)}>
-              Gerar novo QR
+              <RefreshCw size={14} /> Gerar novo QR
             </button>
           )}
           <button className="btn btn-primario">Salvar</button>
@@ -197,10 +213,10 @@ export function ModalQr({ url, descricao, onClose }: { url: string; descricao: s
       </div>
       <div className="form-actions">
         <button className="btn" onClick={() => navigator.clipboard?.writeText(url)}>
-          Copiar link
+          <Copy size={16} /> Copiar link
         </button>
         <button className="btn btn-primario" onClick={() => window.print()}>
-          Imprimir
+          <Printer size={16} /> Imprimir
         </button>
       </div>
     </Modal>

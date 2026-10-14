@@ -1,5 +1,6 @@
-from fastapi import APIRouter, Response, status
+from fastapi import APIRouter, File, Response, UploadFile, status
 
+from app.config import settings
 from app.crud import menu_crud
 from app.dependencies.auth_dep import Admin, CurrentUser, DbSession
 from app.schemas.menu_schema import (
@@ -52,6 +53,26 @@ def historico_precos(menu_id: int, db: DbSession, user: CurrentUser):
     return menu_crud.get_menu(
         db, user.id_estabelecimento, menu_id
     ).historico_precos
+
+
+@router.post(path='/{menu_id}/imagem', response_model=MenuResponse)
+def enviar_imagem(
+    menu_id: int,
+    db: DbSession,
+    user: Admin,
+    arquivo: UploadFile = File(description='JPG, PNG ou WebP'),
+):
+    """Envia a foto do produto (substitui a anterior)."""
+    # Le no maximo o limite + 1 byte para detectar arquivos grandes demais
+    conteudo = arquivo.file.read(settings.MAX_UPLOAD_MB * 1024 * 1024 + 1)
+    return menu_crud.definir_imagem(
+        db, user.id_estabelecimento, menu_id, conteudo
+    )
+
+
+@router.delete(path='/{menu_id}/imagem', response_model=MenuResponse)
+def remover_imagem(menu_id: int, db: DbSession, user: Admin):
+    return menu_crud.remover_imagem(db, user.id_estabelecimento, menu_id)
 
 
 @router.patch(path='/{menu_id}', response_model=MenuResponse)

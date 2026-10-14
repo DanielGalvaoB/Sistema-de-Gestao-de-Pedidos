@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
-import { api } from '../../api/client';
+import { History, Image as ImageIcon, Pencil, Plus, Search, Tags, Trash2, Upload, UtensilsCrossed } from 'lucide-react';
+import { useEffect, useState, type FormEvent } from 'react';
+import { api, apiUpload, imgUrl, MAX_IMAGEM_MB } from '../../api/client';
 import type { Categoria, Produto } from '../../api/types';
 import { Badge, ConfirmModal, Empty, ErrorBox, Loading, Modal, useToast } from '../../components/ui';
 import { useAsync } from '../../hooks/useAsync';
@@ -38,13 +39,21 @@ export default function Produtos() {
   return (
     <div>
       <div className="pagina-topo">
-        <h1>Produtos e categorias</h1>
+        <div className="pagina-titulo">
+          <span className="pagina-icone">
+            <UtensilsCrossed size={22} strokeWidth={1.75} />
+          </span>
+          <div>
+            <h1>Cardápio</h1>
+            <p className="muted small">Produtos, preços, disponibilidade e categorias</p>
+          </div>
+        </div>
         <div className="acoes">
           <button className="btn" onClick={() => setEditCat('nova')}>
-            + Categoria
+            <Tags size={16} /> Categoria
           </button>
           <button className="btn btn-primario" onClick={() => setEditProd('novo')} disabled={!categorias.length}>
-            + Produto
+            <Plus size={16} /> Produto
           </button>
         </div>
       </div>
@@ -56,14 +65,17 @@ export default function Produtos() {
         <div className="chips">
           {categorias.map((c) => (
             <button key={c.id} className={`chip ${c.ativo ? '' : 'inativo'}`} onClick={() => setEditCat(c)}>
-              {c.nome} {!c.ativo && '(oculta)'} ✎
+              {c.nome} {!c.ativo && '(oculta)'} <Pencil size={12} />
             </button>
           ))}
         </div>
       </section>
 
       <div className="filtros">
-        <input placeholder="Buscar por nome ou descrição" value={busca} onChange={(e) => setBusca(e.target.value)} />
+        <div className="input-icone">
+          <Search size={16} />
+          <input placeholder="Buscar por nome ou descrição" value={busca} onChange={(e) => setBusca(e.target.value)} />
+        </div>
         <select value={catFiltro} onChange={(e) => setCatFiltro(e.target.value ? Number(e.target.value) : '')}>
           <option value="">Todas as categorias</option>
           {categorias.map((c) => (
@@ -97,10 +109,15 @@ export default function Produtos() {
             <tbody>
               {prods.data?.map((p) => (
                 <tr key={p.id} className={p.ativo ? '' : 'linha-inativa'}>
-                  <td>
+                  <td className="celula-produto">
+                    <span className="miniatura">
+                      {p.url_imagem ? <img src={imgUrl(p.url_imagem) || ''} alt="" /> : <ImageIcon size={18} />}
+                    </span>
+                    <div>
                     <strong>{p.nome}</strong>
                     {!p.ativo && <Badge status="cancelado">Desativado</Badge>}
                     {p.descricao && <div className="muted small">{p.descricao}</div>}
+                    </div>
                   </td>
                   <td>{nomeCat(p.id_categoria)}</td>
                   <td className="num">{money(p.preco)}</td>
@@ -112,14 +129,14 @@ export default function Produtos() {
                   </td>
                   <td className="acoes-linha">
                     <button className="btn btn-sm" onClick={() => setEditProd(p)}>
-                      Editar
+                      <Pencil size={14} /> Editar
                     </button>
                     <button className="btn btn-sm" onClick={() => setHistorico(p)}>
-                      Preços
+                      <History size={14} /> Preços
                     </button>
                     {p.ativo && (
                       <button className="btn btn-sm btn-perigo-sutil" onClick={() => setExcluir(p)}>
-                        Remover
+                        <Trash2 size={14} /> Remover
                       </button>
                     )}
                   </td>
@@ -185,13 +202,35 @@ function ModalProduto({
     nome: produto?.nome || '',
     preco: produto?.preco || '',
     descricao: produto?.descricao || '',
-    url_imagem: produto?.url_imagem || '',
     id_categoria: produto?.id_categoria || categorias[0]?.id || 0,
-    tempo_preparo_min: produto?.tempo_preparo_min?.toString() || '',
     is_disponivel: produto?.is_disponivel ?? true,
     ativo: produto?.ativo ?? true,
   });
+  const [arquivo, setArquivo] = useState<File | null>(null);
+  const [preview, setPreview] = useState<string | null>(imgUrl(produto?.url_imagem));
+  const [removerImagem, setRemoverImagem] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
+  const [enviando, setEnviando] = useState(false);
+
+  useEffect(() => {
+    if (!arquivo) return;
+    const url = URL.createObjectURL(arquivo);
+    setPreview(url);
+    return () => URL.revokeObjectURL(url);
+  }, [arquivo]);
+
+  const escolherArquivo = (file: File | undefined) => {
+    setErro(null);
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp', 'image/gif'].includes(file.type)) {
+      return setErro('Escolha uma imagem JPG, PNG ou WebP');
+    }
+    if (file.size > MAX_IMAGEM_MB * 1024 * 1024) {
+      return setErro(`A imagem deve ter no máximo ${MAX_IMAGEM_MB} MB`);
+    }
+    setArquivo(file);
+    setRemoverImagem(false);
+  };
 
   const submit = async (e: FormEvent) => {
     e.preventDefault();
@@ -201,24 +240,68 @@ function ModalProduto({
       nome: f.nome,
       preco: preco.toFixed(2),
       descricao: f.descricao || null,
-      url_imagem: f.url_imagem || null,
       id_categoria: Number(f.id_categoria),
-      tempo_preparo_min: f.tempo_preparo_min ? Number(f.tempo_preparo_min) : null,
       is_disponivel: f.is_disponivel,
       ...(produto ? { ativo: f.ativo } : {}),
     };
+    setEnviando(true);
+    setErro(null);
     try {
-      if (produto) await api(`/menu/${produto.id}`, { method: 'PATCH', body });
-      else await api('/menu/', { body });
+      const salvo = produto
+        ? await api<Produto>(`/menu/${produto.id}`, { method: 'PATCH', body })
+        : await api<Produto>('/menu/', { body });
+      if (arquivo) {
+        const form = new FormData();
+        form.append('arquivo', arquivo);
+        await apiUpload(`/menu/${salvo.id}/imagem`, form);
+      } else if (removerImagem && produto?.url_imagem) {
+        await api(`/menu/${salvo.id}/imagem`, { method: 'DELETE' });
+      }
       onSalvo();
     } catch (err) {
       setErro((err as Error).message);
+    } finally {
+      setEnviando(false);
     }
   };
 
   return (
     <Modal titulo={produto ? 'Editar produto' : 'Novo produto'} onClose={onClose}>
       <form className="form" onSubmit={submit}>
+        <div className="upload-imagem">
+          <div className="upload-preview">
+            {preview && !removerImagem ? <img src={preview} alt="Pré-visualização" /> : <ImageIcon size={32} strokeWidth={1.5} />}
+          </div>
+          <div className="upload-acoes">
+            <strong>Foto do produto</strong>
+            <span className="muted small">JPG, PNG ou WebP até {MAX_IMAGEM_MB} MB. A imagem é otimizada automaticamente.</span>
+            <div className="acoes">
+              <label className="btn btn-sm">
+                <Upload size={14} /> {preview && !removerImagem ? 'Trocar imagem' : 'Escolher arquivo'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  hidden
+                  onChange={(e) => escolherArquivo(e.target.files?.[0])}
+                />
+              </label>
+              {preview && !removerImagem && (
+                <button
+                  type="button"
+                  className="btn btn-sm btn-perigo-sutil"
+                  onClick={() => {
+                    setArquivo(null);
+                    setPreview(null);
+                    setRemoverImagem(true);
+                  }}
+                >
+                  <Trash2 size={14} /> Remover
+                </button>
+              )}
+            </div>
+            {arquivo && <span className="small">{arquivo.name}</span>}
+          </div>
+        </div>
         <label>
           Nome
           <input value={f.nome} onChange={(e) => setF({ ...f, nome: e.target.value })} required maxLength={120} />
@@ -243,23 +326,6 @@ function ModalProduto({
           Descrição
           <textarea value={f.descricao} onChange={(e) => setF({ ...f, descricao: e.target.value })} maxLength={500} />
         </label>
-        <div className="grid-2">
-          <label>
-            URL da imagem
-            <input type="url" value={f.url_imagem} onChange={(e) => setF({ ...f, url_imagem: e.target.value })} />
-          </label>
-          <label>
-            Tempo de preparo (min)
-            <input
-              type="number"
-              min={1}
-              max={600}
-              value={f.tempo_preparo_min}
-              onChange={(e) => setF({ ...f, tempo_preparo_min: e.target.value })}
-              placeholder="Padrão da loja"
-            />
-          </label>
-        </div>
         <label className="toggle">
           <input type="checkbox" checked={f.is_disponivel} onChange={(e) => setF({ ...f, is_disponivel: e.target.checked })} />
           Disponível para pedidos
@@ -273,7 +339,9 @@ function ModalProduto({
         {produto && <p className="muted small">Alterar o preço não muda o valor de pedidos já registrados.</p>}
         {erro && <ErrorBox erro={erro} />}
         <div className="form-actions">
-          <button className="btn btn-primario">Salvar</button>
+          <button className="btn btn-primario" disabled={enviando}>
+            {enviando ? 'Salvando...' : 'Salvar'}
+          </button>
         </div>
       </form>
     </Modal>

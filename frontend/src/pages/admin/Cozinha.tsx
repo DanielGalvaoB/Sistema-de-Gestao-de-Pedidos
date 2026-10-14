@@ -1,6 +1,25 @@
+import {
+  AlarmClock,
+  BellRing,
+  CircleCheck,
+  CircleDollarSign,
+  Clock,
+  ExternalLink,
+  Flame,
+  HandPlatter,
+  MessageSquareText,
+  TimerReset,
+  Volume2,
+  Wifi,
+  WifiOff,
+  XCircle,
+} from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { ItemPedido, Pedido, StatusPedido } from '../../api/types';
+import { useAuth } from '../../auth/AuthContext';
+import { ModalPagamentoPedido } from '../../components/PagamentoPedido';
 import { Badge, ConfirmModal, ErrorBox, Loading, useToast } from '../../components/ui';
 import { useAgora, useAsync } from '../../hooks/useAsync';
 import { useRealtime } from '../../hooks/useRealtime';
@@ -53,12 +72,15 @@ function beep(frequencias: number[]) {
 
 export default function Cozinha() {
   const toast = useToast();
+  const { pode } = useAuth();
+  const podeReceber = pode('atendente', 'financeiro');
   const agora = useAgora(15000);
   const [somNovo, setSomNovo] = useState(() => lerPref('kds_som_novo', true));
   const [somPronto, setSomPronto] = useState(() => lerPref('kds_som_pronto', true));
   const [mostrarFinalizados, setMostrarFinalizados] = useState(() => lerPref('kds_finalizados', false));
   const [cancelando, setCancelando] = useState<Pedido | null>(null);
   const [atrasando, setAtrasando] = useState<Pedido | null>(null);
+  const [pagando, setPagando] = useState<Pedido | null>(null);
   const vistos = useRef<Map<number, StatusPedido> | null>(null);
 
   const carregar = useCallback(async () => {
@@ -79,8 +101,9 @@ export default function Cozinha() {
     if (!pedidos) return;
     const atual = new Map(pedidos.map((p) => [p.id, p.status]));
     if (vistos.current) {
-      const novos = pedidos.filter((p) => !vistos.current!.has(p.id) && p.status === 'recebido');
-      const prontos = pedidos.filter((p) => p.status === 'pronto' && vistos.current!.get(p.id) !== 'pronto' && vistos.current!.has(p.id));
+      const antes = vistos.current;
+      const novos = pedidos.filter((p) => !antes.has(p.id) && p.status === 'recebido');
+      const prontos = pedidos.filter((p) => p.status === 'pronto' && antes.has(p.id) && antes.get(p.id) !== 'pronto');
       if (novos.length) {
         if (somNovo) beep([880, 1175]);
         toast(`${novos.length} novo(s) pedido(s)`);
@@ -117,33 +140,44 @@ export default function Cozinha() {
   if (carregando && !pedidos) return <Loading />;
 
   const colunas = mostrarFinalizados ? COLUNAS : COLUNAS.slice(0, 3);
+  const atrasados = (pedidos || []).filter((p) => p.atrasado).length;
 
   return (
     <div className="kds">
       <div className="kds-barra">
-        <h1>Cozinha</h1>
-        <span className={`conexao ${conectado ? 'on' : 'off'}`}>
-          {conectado ? '● Tempo real' : '● Atualização periódica'}
-        </span>
-        <label className="toggle">
-          <input type="checkbox" checked={somNovo} onChange={(e) => salvarPref('kds_som_novo', e.target.checked, setSomNovo)} />
-          Som novos
-        </label>
-        <label className="toggle">
-          <input type="checkbox" checked={somPronto} onChange={(e) => salvarPref('kds_som_pronto', e.target.checked, setSomPronto)} />
-          Som prontos
-        </label>
-        <label className="toggle">
-          <input
-            type="checkbox"
-            checked={mostrarFinalizados}
-            onChange={(e) => salvarPref('kds_finalizados', e.target.checked, setMostrarFinalizados)}
-          />
-          Entregues/cancelados
-        </label>
-        <button className="btn btn-sm" onClick={() => beep([880])}>
-          Testar som
-        </button>
+        <div className="kds-titulo">
+          <h1>Cozinha</h1>
+          <span className={`conexao ${conectado ? 'on' : 'off'}`}>
+            {conectado ? <Wifi size={14} /> : <WifiOff size={14} />}
+            {conectado ? 'Tempo real' : 'Atualização periódica'}
+          </span>
+          {atrasados > 0 && (
+            <span className="pill pill-erro">
+              <AlarmClock size={14} /> {atrasados} atrasado(s)
+            </span>
+          )}
+        </div>
+        <div className="kds-opcoes">
+          <label className="toggle">
+            <input type="checkbox" checked={somNovo} onChange={(e) => salvarPref('kds_som_novo', e.target.checked, setSomNovo)} />
+            Som novos
+          </label>
+          <label className="toggle">
+            <input type="checkbox" checked={somPronto} onChange={(e) => salvarPref('kds_som_pronto', e.target.checked, setSomPronto)} />
+            Som prontos
+          </label>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={mostrarFinalizados}
+              onChange={(e) => salvarPref('kds_finalizados', e.target.checked, setMostrarFinalizados)}
+            />
+            Finalizados
+          </label>
+          <button className="btn btn-sm" onClick={() => beep([880])}>
+            <Volume2 size={14} /> Testar som
+          </button>
+        </div>
       </div>
       {erro && <ErrorBox erro={erro} onRetry={() => recarregar()} />}
 
@@ -155,17 +189,20 @@ export default function Cozinha() {
           return (
             <section key={col.status} className={`kds-coluna col-${col.status}`}>
               <h2>
-                {col.titulo} <span className="contador">{lista.length}</span>
+                <span>{col.titulo}</span> <span className="contador">{lista.length}</span>
               </h2>
+              {lista.length === 0 && <div className="kds-vazio">Nenhum pedido</div>}
               {lista.map((p) => (
                 <CartaoPedido
                   key={p.id}
                   p={p}
                   agora={agora}
+                  podeReceber={podeReceber}
                   onPedido={mudarPedido}
                   onItem={mudarItem}
                   onCancelar={() => setCancelando(p)}
                   onAtraso={() => setAtrasando(p)}
+                  onPagar={() => setPagando(p)}
                 />
               ))}
             </section>
@@ -188,6 +225,7 @@ export default function Cozinha() {
         />
       )}
       {atrasando && <ModalPrevisao pedido={atrasando} onClose={() => setAtrasando(null)} onSalvo={() => recarregar(true)} />}
+      {pagando && <ModalPagamentoPedido pedido={pagando} onClose={() => setPagando(null)} onPago={() => recarregar(true)} />}
     </div>
   );
 }
@@ -195,21 +233,26 @@ export default function Cozinha() {
 function CartaoPedido({
   p,
   agora,
+  podeReceber,
   onPedido,
   onItem,
   onCancelar,
   onAtraso,
+  onPagar,
 }: {
   p: Pedido;
   agora: number;
+  podeReceber: boolean;
   onPedido: (p: Pedido, s: StatusPedido) => void;
   onItem: (p: Pedido, i: ItemPedido, s: StatusPedido) => void;
   onCancelar: () => void;
   onAtraso: () => void;
+  onPagar: () => void;
 }) {
   const decorrido = minutosDesde(p.created_at, agora);
   const ativo = ['recebido', 'em_preparo', 'pronto'].includes(p.status);
   const classe = p.atrasado ? 'atrasado' : p.alerta_prazo ? 'alerta' : '';
+  const aguardandoPagamento = ['pronto', 'entregue'].includes(p.status) && !p.pago;
 
   return (
     <article className={`kds-card ${classe}`}>
@@ -217,23 +260,31 @@ function CartaoPedido({
         <strong className="kds-numero">#{p.id}</strong>
         <span className="kds-local">{atendimento(p)}</span>
         <span className="kds-tempo" title={`Entrada ${hora(p.created_at)}`}>
-          ⏱ {duracao(decorrido)}
+          <Clock size={14} /> {duracao(decorrido)}
         </span>
       </header>
       <div className="kds-meta">
         Entrada {hora(p.created_at)}
-        {p.previsao_pronto && ativo && <> · Previsão {hora(p.previsao_pronto)}</>}
+        {p.previsao_pronto && ativo && p.status !== 'pronto' && <> · Nova previsão {hora(p.previsao_pronto)}</>}
         {p.iniciado_em && <> · Início {hora(p.iniciado_em)}</>}
         {p.pronto_em && <> · Pronto {hora(p.pronto_em)}</>}
       </div>
       {p.atrasado && (
         <div className="kds-atraso">
-          Atrasado {duracao(p.minutos_atraso)}
+          <AlarmClock size={16} /> Atrasado {duracao(p.minutos_atraso)}
           {p.motivo_atraso && ` · ${p.motivo_atraso}`}
         </div>
       )}
-      {!p.atrasado && p.alerta_prazo && <div className="kds-alerta">Perto do prazo</div>}
-      {p.observacao && <div className="kds-obs">📝 {p.observacao}</div>}
+      {!p.atrasado && p.alerta_prazo && (
+        <div className="kds-alerta">
+          <BellRing size={16} /> Perto da previsão informada
+        </div>
+      )}
+      {p.observacao && (
+        <div className="kds-obs">
+          <MessageSquareText size={16} /> {p.observacao}
+        </div>
+      )}
       {p.motivo_cancelamento && <div className="kds-obs">Motivo: {p.motivo_cancelamento}</div>}
 
       <ul className="kds-itens">
@@ -247,7 +298,7 @@ function CartaoPedido({
                 onClick={() => prox && onItem(p, i, prox)}
                 title={prox ? `Marcar como ${prox.replace('_', ' ')}` : ''}
               >
-                <span className="kds-qtd">{i.quantidade}×</span>
+                <span className="kds-qtd">{i.quantidade}x</span>
                 <span className="kds-nome">
                   {i.nome_produto}
                   {i.observacao && <em>{i.observacao}</em>}
@@ -259,33 +310,55 @@ function CartaoPedido({
         })}
       </ul>
 
-      {ativo && (
+      {(p.status === 'pronto' || p.status === 'entregue') && (
+        <div className={`kds-pagamento ${p.pago ? 'pago' : ''}`}>
+          <CircleDollarSign size={16} />
+          {p.pago ? 'Pagamento confirmado' : 'Aguardando pagamento'}
+        </div>
+      )}
+
+      {podeReceber && (
+        <Link to={`/admin/contas/${p.id_sessao}`} className="kds-link-conta">
+          <ExternalLink size={14} /> Ver conta #{p.id_sessao}
+        </Link>
+      )}
+
+      {(ativo || aguardandoPagamento) && (
         <div className="kds-acoes">
           {p.status === 'recebido' && (
             <button className="btn btn-primario btn-grande" onClick={() => onPedido(p, 'em_preparo')}>
-              Iniciar preparo
+              <Flame size={18} /> Iniciar preparo
             </button>
           )}
           {(p.status === 'recebido' || p.status === 'em_preparo') && (
             <button className="btn btn-ok btn-grande" onClick={() => onPedido(p, 'pronto')}>
-              Tudo pronto
+              <CircleCheck size={18} /> Tudo pronto
+            </button>
+          )}
+          {aguardandoPagamento && podeReceber && (
+            <button className="btn btn-pagar btn-grande" onClick={onPagar}>
+              <CircleDollarSign size={18} /> Confirmar pagamento
             </button>
           )}
           {p.status === 'pronto' && (
             <button className="btn btn-ok btn-grande" onClick={() => onPedido(p, 'entregue')}>
-              Entregue
+              <HandPlatter size={18} /> Entregue
             </button>
           )}
-          <div className="kds-acoes-sec">
-            {p.status !== 'pronto' && (
-              <button className="btn btn-sm" onClick={onAtraso}>
-                Previsão
+          {ativo && (
+            <div className="kds-acoes-sec">
+              {p.status !== 'pronto' ? (
+                <button className="btn btn-sm" onClick={onAtraso}>
+                  <TimerReset size={14} /> Informar imprevisto
+                </button>
+              ) : (
+                <span />
+              )}
+              <button className="btn btn-sm btn-perigo-sutil" onClick={onCancelar}>
+                <XCircle size={14} /> Cancelar
               </button>
-            )}
-            <button className="btn btn-sm btn-perigo-sutil" onClick={onCancelar}>
-              Cancelar
-            </button>
-          </div>
+            </div>
+          )}
         </div>
       )}
     </article>
@@ -297,10 +370,14 @@ function ModalPrevisao({ pedido, onClose, onSalvo }: { pedido: Pedido; onClose: 
   const [motivo, setMotivo] = useState(pedido.motivo_atraso || '');
   return (
     <ConfirmModal
-      titulo={`Nova previsão · pedido #${pedido.id}`}
+      titulo={`Informar imprevisto · pedido #${pedido.id}`}
       mensagem={
         <div className="form">
-          <p className="muted">Previsão atual: {hora(pedido.previsao_pronto)}. O cliente verá a nova previsão.</p>
+          <p className="muted">
+            Em quanto tempo o pedido deve ficar pronto, a partir de agora?
+            {pedido.previsao_pronto && ` Previsão atual: ${hora(pedido.previsao_pronto)}.`} O cliente verá a previsão e o
+            motivo.
+          </p>
           <div className="chips">
             {[5, 10, 15, 20, 30].map((m) => (
               <button type="button" key={m} className={`chip ${minutos === m ? 'ativo' : ''}`} onClick={() => setMinutos(m)}>
@@ -309,12 +386,17 @@ function ModalPrevisao({ pedido, onClose, onSalvo }: { pedido: Pedido; onClose: 
             ))}
           </div>
           <label>
-            Motivo do atraso (opcional)
-            <input value={motivo} onChange={(e) => setMotivo(e.target.value)} maxLength={300} />
+            Motivo do imprevisto
+            <input
+              value={motivo}
+              onChange={(e) => setMotivo(e.target.value)}
+              maxLength={300}
+              placeholder="Ex.: falta de gás, forno cheio"
+            />
           </label>
         </div>
       }
-      textoConfirmar={`Adiar ${minutos} min`}
+      textoConfirmar={`Pronto em ${minutos} min`}
       onClose={onClose}
       onConfirm={async () => {
         await api(`/pedidos/${pedido.id}/previsao`, {
@@ -326,3 +408,4 @@ function ModalPrevisao({ pedido, onClose, onSalvo }: { pedido: Pedido; onClose: 
     />
   );
 }
+

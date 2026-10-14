@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from types import SimpleNamespace
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -12,6 +13,7 @@ from app.models.models import (
     HistoricoStatusPedido,
     ItemPedido,
     Menu,
+    Pagamento,
     Pedido,
     SessaoAtendimento,
 )
@@ -39,13 +41,14 @@ TRANSICOES_PEDIDO = {
 
 def _query_pedidos():
     return select(Pedido).options(
+        selectinload(Pedido.pagamentos),
         selectinload(Pedido.itens).selectinload(ItemPedido.menu),
         selectinload(Pedido.sessao).selectinload(SessaoAtendimento.mesa),
     )
 
 
-def _tempo_item(item: ItemPedido, estab: Estabelecimento) -> int:
-    return item.menu.tempo_preparo_min or estab.tempo_preparo_padrao_min
+# Minutos antes da previsao informada em que o pedido entra em alerta
+MINUTOS_ALERTA = 5
 
 
 def total_pedido(pedido: Pedido) -> object:
@@ -54,6 +57,21 @@ def total_pedido(pedido: Pedido) -> object:
     return q2(
         sum(
             (i.subtotal for i in pedido.itens if i.status != 'cancelado'),
+            start=q2(0),
+        )
+    )
+
+
+def conta_quitada(sessao: SessaoAtendimento) -> bool:
+    if sessao.status == 'encerrada':
+        return True
+    return conta_crud.resumo(sessao)['saldo'] <= 0
+
+
+def total_pago_pedido(pedido: Pedido):
+    return q2(
+        sum(
+            (p.valor for p in pedido.pagamentos if p.status == 'confirmado'),
             start=q2(0),
         )
     )
@@ -68,6 +86,8 @@ def pedido_to_dict(
     agora = agora or utcnow()
     em_aberto = pedido.status in {'recebido', 'em_preparo'}
     atrasado, minutos_atraso, alerta = False, 0, False
+    # Nao ha previsao automatica: ela so existe quando o estabelecimento
+    # informa um imprevisto (PATCH /pedidos/{id}/previsao).
     if em_aberto and pedido.previsao_pronto:
         if agora > pedido.previsao_pronto:
             atrasado = True
@@ -75,21 +95,13 @@ def pedido_to_dict(
                 (agora - pedido.previsao_pronto).total_seconds() // 60
             )
         else:
-            duracao = (
-                pedido.previsao_pronto - pedido.created_at
-            ).total_seconds()
-            decorrido = (agora - pedido.created_at).total_seconds()
-            limite = duracao * estab.alerta_atraso_percentual / 100
-            alerta = duracao > 0 and decorrido >= limite
+            restante = pedido.previsao_pronto - agora
+            alerta = restante <= timedelta(minutes=MINUTOS_ALERTA)
 
     itens = []
     for item in pedido.itens:
-        previsao_item = pedido.created_at + timedelta(
-            minutes=_tempo_item(item, estab)
-        )
-        item_atrasado = (
-            item.status in {'recebido', 'em_preparo'} and agora > previsao_item
-        )
+        # O atraso do item vale so para itens ainda nao prontos
+        item_atrasado = atrasado and item.status in {'recebido', 'em_preparo'}
         itens.append({
             'id': item.id,
             'id_menu': item.id_menu,
@@ -101,11 +113,20 @@ def pedido_to_dict(
             'status': item.status,
             'iniciado_em': item.iniciado_em,
             'pronto_em': item.pronto_em,
-            'previsao_pronto': previsao_item,
+            'previsao_pronto': pedido.previsao_pronto,
             'atrasado': item_atrasado,
         })
 
     sessao = pedido.sessao
+    total = total_pedido(pedido)
+    pago = total_pago_pedido(pedido)
+    saldo = q2(max(total - pago, q2(0)))
+    quitado = pedido.status != 'cancelado' and total > 0 and saldo == 0
+    if not quitado and total > 0 and pedido.status in {'pronto', 'entregue'}:
+        # Pagamentos feitos na conta inteira (sem pedido) tambem quitam
+        # os pedidos quando a conta nao tem mais saldo.
+        if conta_quitada(sessao):
+            quitado, saldo = True, q2(0)
     return {
         'id': pedido.id,
         'id_sessao': pedido.id_sessao,
@@ -121,7 +142,10 @@ def pedido_to_dict(
         'previsao_pronto': pedido.previsao_pronto,
         'motivo_atraso': pedido.motivo_atraso,
         'motivo_cancelamento': pedido.motivo_cancelamento,
-        'total': total_pedido(pedido),
+        'total': total,
+        'total_pago': pago,
+        'saldo': saldo,
+        'pago': quitado,
         'tipo_atendimento': sessao.tipo,
         'mesa_numero': sessao.mesa.numero if sessao.mesa else None,
         'cliente_nome': sessao.cliente_nome,
@@ -183,13 +207,6 @@ def criar_pedido(
             raise BusinessRuleError('Quantidade deve ser maior que zero')
 
     agora = utcnow()
-    tempo = max(
-        (
-            produtos[i.id_menu].tempo_preparo_min
-            or estab.tempo_preparo_padrao_min
-        )
-        for i in itens_in
-    )
     pedido = Pedido(
         id_estabelecimento=estab.id,
         id_sessao=sessao.id,
@@ -198,7 +215,7 @@ def criar_pedido(
         origem=origem,
         codigo_acompanhamento=novo_token(16),
         created_at=agora,
-        previsao_pronto=agora + timedelta(minutes=tempo),
+        previsao_pronto=None,
     )
     for item in itens_in:
         menu = produtos[item.id_menu]
@@ -397,8 +414,8 @@ def atualizar_previsao(db: Session, id_estab: int, pedido_id: int, data, uid):
             # Armazenamos sempre em UTC sem tzinfo
             nova = nova.astimezone(timezone.utc).replace(tzinfo=None)
     elif data.minutos_adicionais:
-        base = max(pedido.previsao_pronto or utcnow(), utcnow())
-        nova = base + timedelta(minutes=data.minutos_adicionais)
+        # Nova previsao contada a partir de agora
+        nova = utcnow() + timedelta(minutes=data.minutos_adicionais)
     else:
         raise BusinessRuleError(
             'Informe previsao_pronto ou minutos_adicionais'
@@ -412,11 +429,79 @@ def atualizar_previsao(db: Session, id_estab: int, pedido_id: int, data, uid):
         pedido.status,
         pedido.status,
         uid,
-        motivo=f'Nova previsao. {data.motivo_atraso or ""}'.strip(),
+        motivo=f'Imprevisto informado. {data.motivo_atraso or ""}'.strip(),
     )
     db.commit()
     realtime.notificar(id_estab)
     return get_pedido(db, id_estab, pedido_id)
+
+
+def pagar_pedido(
+    db: Session, estab: Estabelecimento, pedido_id: int, data, uid
+):
+    """Confirma o pagamento de um pedido pronto/entregue.
+
+    Retorna (pedido, criado). O valor padrao e o saldo do pedido; o metodo
+    e informado por quem recebeu. Reenvios com a mesma chave nao duplicam.
+    """
+    pedido = get_pedido(db, estab.id, pedido_id)
+    existente = db.scalar(
+        select(Pagamento).where(
+            Pagamento.id_estabelecimento == estab.id,
+            Pagamento.chave_idempotencia == data.chave_idempotencia,
+        )
+    )
+    if existente:
+        if existente.id_pedido != pedido.id:
+            raise BusinessRuleError('Chave de idempotencia ja utilizada')
+        return pedido, False
+
+    if pedido.status not in {'pronto', 'entregue'}:
+        raise BusinessRuleError(
+            'O pagamento do pedido e confirmado quando ele estiver pronto'
+        )
+    saldo = q2(total_pedido(pedido) - total_pago_pedido(pedido))
+    if saldo <= 0 or conta_quitada(pedido.sessao):
+        raise BusinessRuleError('Este pedido ja esta pago')
+    valor = q2(data.valor) if data.valor is not None else saldo
+    if valor > saldo:
+        raise BusinessRuleError(
+            f'Valor maior que o saldo do pedido (R$ {saldo})'
+        )
+
+    payload = SimpleNamespace(
+        valor=valor,
+        metodo=data.metodo,
+        chave_idempotencia=data.chave_idempotencia,
+        observacao=data.observacao,
+    )
+    _, criado = conta_crud.registrar_pagamento(
+        db, estab.id, pedido.id_sessao, payload, uid, id_pedido=pedido.id
+    )
+    db.expire_all()
+    return get_pedido(db, estab.id, pedido_id), criado
+
+
+def sessao_para_novo_pedido(
+    db: Session, estab: Estabelecimento, origem: Pedido, mesa=None
+):
+    """Conta para um novo pedido da mesma pessoa/mesa de `origem`.
+
+    - Conta de origem aberta: o pedido entra nela (se o QR Code de outra
+      mesa for usado, vale a mesa do QR Code).
+    - Conta ja encerrada: mesa -> conta atual da mesa; balcao/retirada ->
+      nova conta com o mesmo tipo e nome.
+    """
+    sessao = origem.sessao
+    if mesa is not None and sessao.id_mesa != mesa.id:
+        return conta_crud.obter_ou_abrir_sessao_mesa(db, estab.id, mesa)
+    if sessao.status in {'aberta', 'aguardando_pagamento'}:
+        return sessao
+    if sessao.mesa is not None:
+        return conta_crud.obter_ou_abrir_sessao_mesa(db, estab.id, sessao.mesa)
+    return conta_crud.abrir_sessao(
+        db, estab.id, None, sessao.tipo, sessao.cliente_nome
+    )
 
 
 def abrir_sessao_para_pedido(

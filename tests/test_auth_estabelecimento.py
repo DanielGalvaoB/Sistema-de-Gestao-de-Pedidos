@@ -89,7 +89,7 @@ def test_patch_estabelecimento_conflito_de_email(client):
     assert r.status_code == 409
     r = client.patch(
         f'/estabelecimentos/{est1["id"]}',
-        json={'nome_loja': 'Novo nome', 'tempo_preparo_padrao_min': 15},
+        json={'nome_loja': 'Novo nome', 'taxa_servico_percentual': '10'},
         headers=h1,
     )
     assert r.status_code == 200

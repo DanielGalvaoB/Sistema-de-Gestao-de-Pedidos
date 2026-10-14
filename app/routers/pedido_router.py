@@ -1,12 +1,13 @@
 from datetime import date
 
-from fastapi import APIRouter, Query, status
+from fastapi import APIRouter, Query, Response, status
 
 from app.core.errors import BusinessRuleError
 from app.core.utils import periodo_utc
 from app.crud import mesa_crud, pedido_crud
-from app.dependencies.auth_dep import Atendimento, Cozinha, DbSession
+from app.dependencies.auth_dep import Atendimento, Caixa, Cozinha, DbSession
 from app.schemas.pedido_schema import (
+    PagamentoPedidoCreate,
     PedidoCreate,
     PedidoDetalhe,
     PedidoResponse,
@@ -113,4 +114,30 @@ def atualizar_previsao(
     pedido = pedido_crud.atualizar_previsao(
         db, estab.id, pedido_id, data, user.id
     )
+    return pedido_crud.pedido_to_dict(pedido, estab)
+
+
+@router.post(
+    '/{pedido_id}/pagamentos',
+    response_model=PedidoResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def confirmar_pagamento(
+    pedido_id: int,
+    data: PagamentoPedidoCreate,
+    db: DbSession,
+    user: Caixa,
+    response: Response,
+):
+    """Confirma (manualmente) o pagamento de um pedido pronto ou entregue.
+
+    Informe a forma de pagamento; sem `valor`, quita o saldo do pedido.
+    Reenvios com a mesma `chave_idempotencia` devolvem HTTP 200.
+    """
+    estab = user.estabelecimento
+    pedido, criado = pedido_crud.pagar_pedido(
+        db, estab, pedido_id, data, user.id
+    )
+    if not criado:
+        response.status_code = status.HTTP_200_OK
     return pedido_crud.pedido_to_dict(pedido, estab)

@@ -2,6 +2,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.errors import BusinessRuleError, NotFoundError
+from app.core.imagens import remover_imagem_local, salvar_imagem_produto
 from app.core.utils import q2
 from app.crud.categoria_crud import get_categoria
 from app.models.models import HistoricoPreco, ItemPedido, Menu
@@ -103,6 +104,27 @@ def update_menu(db: Session, id_estab: int, menu_data, id_menu: int, user_id):
     db.refresh(db_menu)
 
     return db_menu
+
+
+def definir_imagem(db: Session, id_estab: int, id_menu: int, conteudo: bytes):
+    menu = get_menu(db, id_estab, id_menu)
+    nova = salvar_imagem_produto(conteudo, id_estab, menu.id)
+    antiga = menu.url_imagem
+    menu.url_imagem = nova
+    db.commit()
+    remover_imagem_local(antiga)
+    db.refresh(menu)
+    return menu
+
+
+def remover_imagem(db: Session, id_estab: int, id_menu: int):
+    menu = get_menu(db, id_estab, id_menu)
+    antiga = menu.url_imagem
+    menu.url_imagem = None
+    db.commit()
+    remover_imagem_local(antiga)
+    db.refresh(menu)
+    return menu
 
 
 # delete: remove de fato apenas produtos nunca vendidos; os demais sao

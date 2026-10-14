@@ -37,6 +37,9 @@ class PedidoPublicoCreate(BaseModel):
     """Pedido enviado pelo cliente a partir do cardapio publico."""
 
     mesa_token: str | None = Field(default=None, max_length=40)
+    # Codigo de acompanhamento de um pedido anterior: o novo pedido entra
+    # na mesma conta (mesma pessoa/mesa) enquanto ela estiver aberta.
+    codigo_origem: str | None = Field(default=None, max_length=40)
     tipo: TipoAtendimento = 'balcao'
     cliente_nome: str | None = Field(default=None, max_length=80)
     observacao: str | None = Field(default=None, max_length=500)
@@ -46,6 +49,18 @@ class PedidoPublicoCreate(BaseModel):
 class StatusUpdate(BaseModel):
     status: StatusPedido
     motivo: str | None = Field(default=None, max_length=300)
+
+
+class PagamentoPedidoCreate(BaseModel):
+    metodo: Literal[
+        'dinheiro', 'cartao_credito', 'cartao_debito', 'pix', 'outro'
+    ]
+    # Opcional: sem valor, quita o saldo do pedido
+    valor: Decimal | None = Field(
+        default=None, gt=0, max_digits=12, decimal_places=2
+    )
+    chave_idempotencia: str = Field(min_length=8, max_length=80)
+    observacao: str | None = Field(default=None, max_length=300)
 
 
 class PrevisaoUpdate(BaseModel):
@@ -93,6 +108,9 @@ class PedidoResponse(ORMModel):
     motivo_atraso: str | None
     motivo_cancelamento: str | None
     total: Decimal
+    total_pago: Decimal
+    saldo: Decimal
+    pago: bool
     tipo_atendimento: str
     mesa_numero: str | None
     cliente_nome: str | None
@@ -117,6 +135,7 @@ class PedidoAcompanhamento(BaseModel):
 
     numero: int
     nome_loja: str
+    slug: str
     status: str
     tipo_atendimento: str
     mesa_numero: str | None
@@ -129,3 +148,15 @@ class PedidoAcompanhamento(BaseModel):
     motivo_atraso: str | None
     total: Decimal
     itens: list[ItemAcompanhamento]
+
+
+class ContaAcompanhamento(BaseModel):
+    """Pedidos da mesma conta, vistos pelo cliente (sem dados pessoais)."""
+
+    nome_loja: str
+    slug: str
+    tipo_atendimento: str
+    mesa_numero: str | None
+    conta_aberta: bool
+    total: Decimal
+    pedidos: list[PedidoAcompanhamento]

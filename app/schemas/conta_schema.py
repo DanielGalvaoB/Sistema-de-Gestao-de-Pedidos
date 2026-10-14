@@ -42,6 +42,7 @@ class EstornoRequest(BaseModel):
 class PagamentoResponse(ORMModel):
     id: int
     id_sessao: int
+    id_pedido: int | None = None
     valor: Decimal
     metodo: str
     status: str

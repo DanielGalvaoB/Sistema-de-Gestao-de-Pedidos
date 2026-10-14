@@ -1,10 +1,35 @@
+import {
+  Armchair,
+  ArrowLeft,
+  BadgePercent,
+  Banknote,
+  Calculator,
+  CircleCheck,
+  CircleDollarSign,
+  Copy,
+  HandPlatter,
+  Hourglass,
+  Lock,
+  Minus,
+  Plus,
+  QrCode,
+  Receipt,
+  ReceiptText,
+  Search,
+  Send,
+  ShoppingBag,
+  Undo2,
+  Wallet,
+  XCircle,
+} from 'lucide-react';
 import { QRCodeSVG } from 'qrcode.react';
 import { useMemo, useRef, useState, type FormEvent } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, novaChave } from '../../api/client';
-import type { CobrancaPix, Conta as ContaT, Pagamento, Produto } from '../../api/types';
+import type { CobrancaPix, Conta as ContaT, Pagamento, Pedido, Produto } from '../../api/types';
+import { METODOS, ModalPagamentoPedido } from '../../components/PagamentoPedido';
 import { useAuth } from '../../auth/AuthContext';
-import { Badge, ConfirmModal, Empty, ErrorBox, Loading, Modal, Stat, useToast } from '../../components/ui';
+import { Badge, ConfirmModal, Empty, ErrorBox, Loading, Modal, PageHeader, Stat, useToast } from '../../components/ui';
 import { useAsync } from '../../hooks/useAsync';
 import { useRealtime } from '../../hooks/useRealtime';
 import { dataHora, hora, METODO_LABEL, money, TIPO_LABEL } from '../../utils/format';
@@ -17,6 +42,7 @@ export default function Conta() {
   useRealtime(() => recarregar(true), 15000);
   const [modal, setModal] = useState<null | 'pedido' | 'pagamento' | 'ajuste' | 'pix' | 'encerrar' | 'cancelar'>(null);
   const [estornar, setEstornar] = useState<Pagamento | null>(null);
+  const [pagandoPedido, setPagandoPedido] = useState<Pedido | null>(null);
 
   if (carregando && !conta) return <Loading />;
   if (erro || !conta) return <ErrorBox erro={erro || 'Conta não encontrada'} onRetry={() => recarregar()} />;
@@ -31,32 +57,38 @@ export default function Conta() {
     recarregar(true);
   };
 
+  const entregar = async (p: Pedido) => {
+    try {
+      await api(`/pedidos/${p.id}/status`, { method: 'PATCH', body: { status: 'entregue' } });
+      recarregar(true);
+    } catch (e) {
+      toast((e as Error).message, 'erro');
+    }
+  };
+
   return (
     <div>
-      <div className="pagina-topo">
-        <div>
-          <Link to={conta.mesa_numero ? '/admin/mesas' : '/admin/caixa'} className="small">
-            ← Voltar
-          </Link>
-          <h1>
+      <Link to={conta.mesa_numero ? '/admin/mesas' : '/admin/caixa'} className="voltar">
+        <ArrowLeft size={16} /> Voltar
+      </Link>
+      <PageHeader
+        icone={conta.mesa_numero ? Armchair : ShoppingBag}
+        titulo={
+          <>
             Conta #{conta.id} · {titulo}
-            {conta.cliente_nome && ` · ${conta.cliente_nome}`}
-          </h1>
-          <span className="muted small">
-            Aberta em {dataHora(conta.aberta_em)}
-            {conta.encerrada_em && ` · encerrada em ${dataHora(conta.encerrada_em)}`}
-          </span>
-        </div>
-        <Badge status={conta.status} />
-      </div>
+            {conta.cliente_nome && ` · ${conta.cliente_nome}`} <Badge status={conta.status} />
+          </>
+        }
+        subtitulo={`Aberta em ${dataHora(conta.aberta_em)}${conta.encerrada_em ? ` · encerrada em ${dataHora(conta.encerrada_em)}` : ''}`}
+      />
 
       <div className="stats">
-        <Stat rotulo="Subtotal" valor={money(r.subtotal)} />
-        <Stat rotulo="Descontos" valor={`− ${money(r.desconto)}`} />
-        <Stat rotulo="Acréscimos" valor={`+ ${money(r.acrescimo)}`} />
-        <Stat rotulo="Total" valor={money(r.total)} />
-        <Stat rotulo="Pago" valor={money(r.total_pago)} destaque="ok" />
-        <Stat rotulo="Saldo" valor={money(r.saldo)} destaque={saldo > 0 ? 'erro' : 'ok'} />
+        <Stat rotulo="Subtotal" valor={money(r.subtotal)} icone={Receipt} />
+        <Stat rotulo="Descontos" valor={`- ${money(r.desconto)}`} icone={BadgePercent} />
+        <Stat rotulo="Acréscimos" valor={`+ ${money(r.acrescimo)}`} icone={Plus} />
+        <Stat rotulo="Total" valor={money(r.total)} icone={Calculator} destaque="info" />
+        <Stat rotulo="Pago" valor={money(r.total_pago)} icone={CircleCheck} destaque="ok" />
+        <Stat rotulo="Saldo" valor={money(r.saldo)} icone={CircleDollarSign} destaque={saldo > 0 ? 'erro' : 'ok'} />
       </div>
       {(conta.motivo_desconto || conta.motivo_acrescimo) && (
         <p className="muted small">
@@ -69,17 +101,17 @@ export default function Conta() {
         <div className="barra-acoes">
           {pode('atendente') && (
             <button className="btn btn-primario" onClick={() => setModal('pedido')}>
-              + Adicionar pedido
+              <Plus size={16} /> Adicionar pedido
             </button>
           )}
           <button className="btn btn-ok" disabled={saldo <= 0} onClick={() => setModal('pagamento')}>
-            Registrar pagamento
+            <Banknote size={16} /> Pagamento da conta
           </button>
           <button className="btn" disabled={saldo <= 0} onClick={() => setModal('pix')}>
-            Cobrança PIX
+            <QrCode size={16} /> Cobrança PIX
           </button>
           <button className="btn" onClick={() => setModal('ajuste')}>
-            Desconto / acréscimo
+            <BadgePercent size={16} /> Desconto / acréscimo
           </button>
           {conta.status === 'aberta' && (
             <button
@@ -93,15 +125,15 @@ export default function Conta() {
                 }
               }}
             >
-              Pedir fechamento
+              <Hourglass size={16} /> Pedir fechamento
             </button>
           )}
-          <button className="btn btn-primario" onClick={() => setModal('encerrar')}>
-            Encerrar conta
+          <button className="btn btn-escuro" onClick={() => setModal('encerrar')}>
+            <Lock size={16} /> Encerrar conta
           </button>
           {conta.pedidos?.every((p) => p.status === 'cancelado') && (
             <button className="btn btn-perigo-sutil" onClick={() => setModal('cancelar')}>
-              Cancelar conta
+              <XCircle size={16} /> Cancelar conta
             </button>
           )}
         </div>
@@ -109,69 +141,80 @@ export default function Conta() {
 
       <div className="grid-2-col">
         <section className="card">
-          <h2>Pedidos</h2>
+          <h2 className="card-titulo">
+            <ReceiptText size={18} /> Pedidos
+          </h2>
           {conta.pedidos?.length === 0 && <Empty>Nenhum pedido nesta conta.</Empty>}
-          {conta.pedidos?.map((p) => (
-            <div key={p.id} className={`pedido-bloco ${p.status === 'cancelado' ? 'cancelado' : ''}`}>
-              <div className="pedido-bloco-topo">
-                <strong>
-                  #{p.id} · {hora(p.created_at)}
-                </strong>
-                <Badge status={p.status} />
-                {p.status === 'pronto' && pode('atendente') && (
-                  <button
-                    className="btn btn-sm btn-ok"
-                    onClick={async () => {
-                      try {
-                        await api(`/pedidos/${p.id}/status`, { method: 'PATCH', body: { status: 'entregue' } });
-                        recarregar(true);
-                      } catch (e) {
-                        toast((e as Error).message, 'erro');
-                      }
-                    }}
-                  >
-                    Marcar entregue
-                  </button>
+          {conta.pedidos?.map((p) => {
+            const aguardando = aberta && ['pronto', 'entregue'].includes(p.status) && !p.pago;
+            return (
+              <div key={p.id} className={`pedido-bloco ${p.status === 'cancelado' ? 'cancelado' : ''}`}>
+                <div className="pedido-bloco-topo">
+                  <strong>
+                    #{p.id} · {hora(p.created_at)}
+                  </strong>
+                  <Badge status={p.status} />
+                  {p.status !== 'cancelado' && (
+                    <Badge status={p.pago ? 'paga' : 'pendente'}>{p.pago ? 'Pago' : 'A pagar'}</Badge>
+                  )}
+                  <span className="num">{money(p.total)}</span>
+                </div>
+                <ul className="lista-itens">
+                  {p.itens.map((i) => (
+                    <li key={i.id} className={i.status === 'cancelado' ? 'riscado' : ''}>
+                      <span>
+                        {i.quantidade}x {i.nome_produto}
+                        {i.observacao && <em className="muted"> ({i.observacao})</em>}
+                      </span>
+                      <span className="muted small">
+                        {money(i.preco_unitario)} · {money(i.subtotal)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {p.motivo_cancelamento && <p className="small texto-erro">Cancelado: {p.motivo_cancelamento}</p>}
+                {(aguardando || (p.status === 'pronto' && pode('atendente'))) && (
+                  <div className="pedido-bloco-acoes">
+                    {aguardando && (
+                      <button className="btn btn-sm btn-pagar" onClick={() => setPagandoPedido(p)}>
+                        <CircleDollarSign size={14} /> Confirmar pagamento
+                        {Number(p.total_pago) > 0 && ` (resta ${money(p.saldo)})`}
+                      </button>
+                    )}
+                    {p.status === 'pronto' && pode('atendente') && (
+                      <button className="btn btn-sm btn-ok" onClick={() => entregar(p)}>
+                        <HandPlatter size={14} /> Marcar entregue
+                      </button>
+                    )}
+                  </div>
                 )}
-                <span className="num">{money(p.total)}</span>
               </div>
-              <ul className="lista-itens">
-                {p.itens.map((i) => (
-                  <li key={i.id} className={i.status === 'cancelado' ? 'riscado' : ''}>
-                    <span>
-                      {i.quantidade}× {i.nome_produto}
-                      {i.observacao && <em className="muted"> ({i.observacao})</em>}
-                    </span>
-                    <span className="muted small">
-                      {money(i.preco_unitario)} · {money(i.subtotal)}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-              {p.motivo_cancelamento && <p className="small texto-erro">Cancelado: {p.motivo_cancelamento}</p>}
-            </div>
-          ))}
+            );
+          })}
         </section>
 
         <section className="card">
-          <h2>Pagamentos</h2>
+          <h2 className="card-titulo">
+            <Wallet size={18} /> Pagamentos
+          </h2>
           {conta.pagamentos?.length === 0 && <Empty>Nenhum pagamento registrado.</Empty>}
           <ul className="lista-pagamentos">
             {conta.pagamentos?.map((p) => (
               <li key={p.id} className={p.status === 'estornado' ? 'riscado' : ''}>
                 <div>
                   <strong>{money(p.valor)}</strong> · {METODO_LABEL[p.metodo]}
+                  {p.id_pedido && <span className="muted"> · pedido #{p.id_pedido}</span>}
                   <div className="muted small">
                     {dataHora(p.data_hora)} · registro {p.origem}
                     {p.observacao && ` · ${p.observacao}`}
                     {p.motivo_estorno && ` · estorno: ${p.motivo_estorno}`}
                   </div>
                 </div>
-                <div>
+                <div className="acoes-linha">
                   <Badge status={p.status} />
                   {aberta && p.status === 'confirmado' && (
                     <button className="btn btn-sm btn-perigo-sutil" onClick={() => setEstornar(p)}>
-                      Estornar
+                      <Undo2 size={14} /> Estornar
                     </button>
                   )}
                 </div>
@@ -181,6 +224,9 @@ export default function Conta() {
         </section>
       </div>
 
+      {pagandoPedido && (
+        <ModalPagamentoPedido pedido={pagandoPedido} onClose={() => setPagandoPedido(null)} onPago={() => recarregar(true)} />
+      )}
       {modal === 'pedido' && <ModalPedido contaId={conta.id} onClose={() => setModal(null)} onSalvo={fecharESalvar} />}
       {modal === 'pagamento' && (
         <ModalPagamento contaId={conta.id} saldo={saldo} onClose={() => setModal(null)} onSalvo={fecharESalvar} />
@@ -276,7 +322,10 @@ function ModalPedido({ contaId, onClose, onSalvo }: { contaId: number; onClose: 
 
   return (
     <Modal titulo="Adicionar pedido" onClose={onClose} largo>
-      <input placeholder="Buscar produto..." value={busca} onChange={(e) => setBusca(e.target.value)} autoFocus />
+      <div className="input-icone">
+        <Search size={16} />
+        <input placeholder="Buscar produto..." value={busca} onChange={(e) => setBusca(e.target.value)} autoFocus />
+      </div>
       {carregando ? (
         <Loading />
       ) : (
@@ -295,9 +344,13 @@ function ModalPedido({ contaId, onClose, onSalvo }: { contaId: number; onClose: 
                 )}
               </div>
               <div className="qtd">
-                <button onClick={() => mudar(p.id, -1)}>−</button>
+                <button onClick={() => mudar(p.id, -1)} aria-label="Diminuir">
+                  <Minus size={16} />
+                </button>
                 <span>{itens[p.id]?.qtd || 0}</span>
-                <button onClick={() => mudar(p.id, 1)}>+</button>
+                <button onClick={() => mudar(p.id, 1)} aria-label="Aumentar">
+                  <Plus size={16} />
+                </button>
               </div>
             </li>
           ))}
@@ -311,7 +364,7 @@ function ModalPedido({ contaId, onClose, onSalvo }: { contaId: number; onClose: 
       <div className="form-actions">
         <span className="muted">Total estimado: {money(total)}</span>
         <button className="btn btn-primario" disabled={!selecionados.length || enviando} onClick={enviar}>
-          {enviando ? 'Enviando...' : 'Enviar para a cozinha'}
+          <Send size={16} /> {enviando ? 'Enviando...' : 'Enviar para a cozinha'}
         </button>
       </div>
     </Modal>
@@ -363,15 +416,16 @@ function ModalPagamento({
   };
 
   return (
-    <Modal titulo="Registrar pagamento (manual)" onClose={onClose}>
+    <Modal titulo="Pagamento da conta" onClose={onClose}>
       <form className="form" onSubmit={submit}>
         <p className="muted small">
           Registre somente valores efetivamente recebidos. Saldo: <strong>{money(saldo)}</strong>
         </p>
-        <div className="chips">
-          {Object.entries(METODO_LABEL).map(([k, v]) => (
-            <button type="button" key={k} className={`chip ${metodo === k ? 'ativo' : ''}`} onClick={() => setMetodo(k)}>
-              {v}
+        <div className="metodos-grid">
+          {METODOS.map(({ valor: k, label, icone: Icone }) => (
+            <button type="button" key={k} className={`metodo ${metodo === k ? 'ativo' : ''}`} onClick={() => setMetodo(k)}>
+              <Icone size={22} strokeWidth={1.75} />
+              <span>{label}</span>
             </button>
           ))}
         </div>
@@ -383,7 +437,11 @@ function ModalPagamento({
           <label>
             Valor entregue pelo cliente (para calcular troco)
             <input inputMode="decimal" value={recebido} onChange={(e) => setRecebido(e.target.value)} />
-            {troco > 0 && <strong>Troco: {money(troco)}</strong>}
+            {troco > 0 && (
+              <span className="troco">
+                Troco <strong>{money(troco)}</strong>
+              </span>
+            )}
           </label>
         )}
         {metodo === 'pix' && (
@@ -509,7 +567,7 @@ function ModalPix({ contaId, saldo, onClose }: { contaId: number; saldo: number;
           </label>
           {erro && <ErrorBox erro={erro} />}
           <button className="btn btn-primario" onClick={gerar}>
-            Gerar QR Code PIX
+            <QrCode size={16} /> Gerar QR Code PIX
           </button>
         </div>
       ) : (
@@ -525,7 +583,7 @@ function ModalPix({ contaId, saldo, onClose }: { contaId: number; saldo: number;
               toast('Código copiado');
             }}
           >
-            Copiar código copia e cola
+            <Copy size={16} /> Copiar código copia e cola
           </button>
           <p className="alert alert-aviso small">{cobranca.aviso}</p>
         </div>

@@ -85,7 +85,7 @@ def main():
             cat = categoria_crud.create_categoria(
                 db, est.id, CategoriaCreate(nome=cat_nome, ordem=ordem)
             )
-            for nome, preco, desc, tempo in produtos:
+            for nome, preco, desc, _tempo in produtos:
                 menu_crud.create_menu(
                     db,
                     est.id,
@@ -94,7 +94,6 @@ def main():
                         preco=Decimal(preco),
                         descricao=desc,
                         id_categoria=cat.id,
-                        tempo_preparo_min=tempo,
                     ),
                 )
         for n in range(1, 7):

@@ -36,7 +36,9 @@ def test_pedido_valido_usa_preco_do_banco(client, loja):
     assert p['status'] == 'recebido'
     assert p['mesa_numero'] == '1'
     assert p['itens'][0]['observacao'] == 'sem cebola'
-    assert p['previsao_pronto'] is not None
+    # Sem previsao automatica: so existe quando o estabelecimento informa
+    assert p['previsao_pronto'] is None
+    assert p['atrasado'] is False and p['alerta_prazo'] is False
 
 
 def test_pedido_invalido_nao_persiste_nada(client, loja, session_factory):
@@ -190,18 +192,35 @@ def test_cancelar_item_e_pedido(client, loja):
     assert r.json()['total'] == '0.00'
 
 
-def test_atraso_e_nova_previsao(client, loja, session_factory):
+def test_previsao_so_quando_informada(client, loja, session_factory):
     h = loja['h']
     p = _pedido(
         client, loja, [{'id_menu': loja['x']['id'], 'quantidade': 1}]
     ).json()
+    # Mesmo antigo, pedido sem previsao informada nunca fica atrasado
     with session_factory() as db:
-        pedido = db.get(Pedido, p['id'])
-        pedido.created_at -= timedelta(minutes=40)
-        pedido.previsao_pronto -= timedelta(minutes=40)
+        db.get(Pedido, p['id']).created_at -= timedelta(hours=2)
         db.commit()
     r = client.get('/pedidos/', params={'ativos': True}, headers=h).json()[0]
-    assert r['atrasado'] is True and r['minutos_atraso'] >= 19
+    assert r['atrasado'] is False and r['previsao_pronto'] is None
+    pub = client.get(f'/public/pedidos/{p["codigo_acompanhamento"]}').json()
+    assert pub['previsao_pronto'] is None
+
+    # Estabelecimento informa um imprevisto: +3 min -> alerta (faltam <= 5)
+    r = client.patch(
+        f'/pedidos/{p["id"]}/previsao',
+        json={'minutos_adicionais': 3, 'motivo_atraso': 'Falta de gas'},
+        headers=h,
+    ).json()
+    assert r['previsao_pronto'] is not None
+    assert r['atrasado'] is False and r['alerta_prazo'] is True
+
+    # Prazo informado vencido -> atrasado, com o item pendente marcado
+    with session_factory() as db:
+        db.get(Pedido, p['id']).previsao_pronto -= timedelta(minutes=25)
+        db.commit()
+    r = client.get('/pedidos/', params={'ativos': True}, headers=h).json()[0]
+    assert r['atrasado'] is True and r['minutos_atraso'] >= 20
     assert r['itens'][0]['atrasado'] is True
 
     r = client.patch(
@@ -294,3 +313,118 @@ def test_websocket_rejeita_token_invalido(client):
     with pytest.raises(WebSocketDisconnect):
         with client.websocket_connect('/ws/pedidos?token=invalido') as ws:
             ws.receive_json()
+
+
+def _pagar_pedido(client, h, pid, metodo='dinheiro', valor=None, chave=None):
+    import uuid
+
+    body = {'metodo': metodo, 'chave_idempotencia': chave or uuid.uuid4().hex}
+    if valor is not None:
+        body['valor'] = valor
+    return client.post(f'/pedidos/{pid}/pagamentos', json=body, headers=h)
+
+
+def test_confirmar_pagamento_do_pedido_pronto(client, loja):
+    h = loja['h']
+    p = _pedido(
+        client, loja, [{'id_menu': loja['x']['id'], 'quantidade': 2}]
+    ).json()
+    assert p['pago'] is False and p['saldo'] == '51.00'
+
+    # Antes de ficar pronto nao confirma
+    assert _pagar_pedido(client, h, p['id']).status_code == 422
+    client.patch(
+        f'/pedidos/{p["id"]}/status', json={'status': 'pronto'}, headers=h
+    )
+
+    # Metodo obrigatorio e validado
+    r = client.post(
+        f'/pedidos/{p["id"]}/pagamentos',
+        json={'chave_idempotencia': 'x' * 10},
+        headers=h,
+    )
+    assert r.status_code == 422
+    r = _pagar_pedido(client, h, p['id'], metodo='cheque')
+    assert r.status_code == 422
+
+    r = _pagar_pedido(client, h, p['id'], 'cartao_debito', valor='20.00')
+    assert r.status_code == 201
+    assert r.json()['total_pago'] == '20.00' and r.json()['pago'] is False
+    assert _pagar_pedido(client, h, p['id'], valor='40.00').status_code == 422
+
+    chave = 'chave-final-123'
+    r = _pagar_pedido(client, h, p['id'], 'pix', chave=chave)
+    assert r.status_code == 201 and r.json()['pago'] is True
+    assert (
+        _pagar_pedido(client, h, p['id'], 'pix', chave=chave).status_code
+        == 200
+    )
+    assert _pagar_pedido(client, h, p['id']).status_code == 422  # ja pago
+
+    conta = client.get(f'/contas/{p["id_sessao"]}', headers=h).json()
+    assert [
+        (x['metodo'], x['valor'], x['id_pedido']) for x in conta['pagamentos']
+    ] == [
+        ('cartao_debito', '20.00', p['id']),
+        ('pix', '31.00', p['id']),
+    ]
+    assert conta['resumo']['saldo'] == '0.00'
+    movs = client.get('/financeiro/movimentacoes', headers=h).json()
+    assert len(movs) == 2 and all(m['automatica'] for m in movs)
+
+
+def test_pagamento_de_um_pedido_nao_quita_outro_da_mesma_mesa(client, loja):
+    h = loja['h']
+    a = _pedido(
+        client, loja, [{'id_menu': loja['x']['id'], 'quantidade': 1}]
+    ).json()
+    b = _pedido(
+        client, loja, [{'id_menu': loja['suco']['id'], 'quantidade': 1}]
+    ).json()
+    for p in (a, b):
+        client.patch(
+            f'/pedidos/{p["id"]}/status', json={'status': 'pronto'}, headers=h
+        )
+    r = _pagar_pedido(client, h, a['id'], 'cartao_credito')
+    assert r.json()['pago'] is True
+    outro = client.get(f'/pedidos/{b["id"]}', headers=h).json()
+    assert outro['pago'] is False and outro['saldo'] == '8.00'
+    conta = client.get(f'/contas/{a["id_sessao"]}', headers=h).json()
+    assert conta['resumo']['saldo'] == '8.00'
+
+
+def test_cozinha_nao_confirma_pagamento(client, loja):
+    cozinha = criar_usuario(client, loja['h'], 'cozinha')
+    p = _pedido(
+        client, loja, [{'id_menu': loja['x']['id'], 'quantidade': 1}]
+    ).json()
+    client.patch(
+        f'/pedidos/{p["id"]}/status',
+        json={'status': 'pronto'},
+        headers=loja['h'],
+    )
+    assert _pagar_pedido(client, cozinha, p['id']).status_code == 403
+
+
+def test_pagamento_da_conta_inteira_quita_os_pedidos(client, loja):
+    import uuid
+
+    h = loja['h']
+    p = _pedido(
+        client, loja, [{'id_menu': loja['x']['id'], 'quantidade': 1}]
+    ).json()
+    client.patch(
+        f'/pedidos/{p["id"]}/status', json={'status': 'pronto'}, headers=h
+    )
+    client.post(
+        f'/contas/{p["id_sessao"]}/pagamentos',
+        json={
+            'valor': '25.50',
+            'metodo': 'dinheiro',
+            'chave_idempotencia': uuid.uuid4().hex,
+        },
+        headers=h,
+    )
+    r = client.get(f'/pedidos/{p["id"]}', headers=h).json()
+    assert r['pago'] is True and r['saldo'] == '0.00'
+    assert _pagar_pedido(client, h, p['id']).status_code == 422

@@ -28,8 +28,6 @@ export interface Estabelecimento {
   nome_titular: string;
   chave_pix: string;
   cidade: string;
-  tempo_preparo_padrao_min: number;
-  alerta_atraso_percentual: number;
   taxa_servico_percentual: string;
 }
 
@@ -48,7 +46,6 @@ export interface Produto {
   url_imagem: string | null;
   is_disponivel: boolean;
   ativo: boolean;
-  tempo_preparo_min: number | null;
   id_categoria: number;
 }
 
@@ -95,6 +92,9 @@ export interface Pedido {
   motivo_atraso: string | null;
   motivo_cancelamento: string | null;
   total: string;
+  total_pago: string;
+  saldo: string;
+  pago: boolean;
   tipo_atendimento: string;
   mesa_numero: string | null;
   cliente_nome: string | null;
@@ -122,6 +122,7 @@ export interface ResumoConta {
 
 export interface Pagamento {
   id: number;
+  id_pedido: number | null;
   valor: string;
   metodo: string;
   status: string;
@@ -163,14 +164,14 @@ export interface CobrancaPix {
 export interface CategoriaFinanceira {
   id: number;
   nome: string;
-  tipo: 'entrada' | 'saida';
+  tipo: 'entrada';
   ativo: boolean;
   sistema: boolean;
 }
 
 export interface Movimentacao {
   id: number;
-  tipo: 'entrada' | 'saida';
+  tipo: 'entrada';
   descricao: string;
   id_categoria: number;
   categoria_nome: string;
@@ -197,16 +198,14 @@ export interface Relatorio {
   criterios: Record<string, string>;
   total_vendas: string;
   total_recebido: string;
+  outras_entradas: string;
   total_entradas: string;
-  total_despesas: string;
-  saldo: string;
   pendente_recebimento: string;
   quantidade_pedidos: number;
   ticket_medio: string;
   produtos_mais_vendidos: ValorRotulo[];
-  vendas_por_dia: { dia: string; vendas: string; recebido: string; despesas: string }[];
+  vendas_por_dia: { dia: string; vendas: string; recebido: string }[];
   recebido_por_metodo: ValorRotulo[];
-  despesas_por_categoria: ValorRotulo[];
 }
 
 export interface CardapioPublico {
@@ -218,6 +217,7 @@ export interface CardapioPublico {
 export interface PedidoAcompanhamento {
   numero: number;
   nome_loja: string;
+  slug: string;
   status: StatusPedido;
   tipo_atendimento: string;
   mesa_numero: string | null;
@@ -230,4 +230,14 @@ export interface PedidoAcompanhamento {
   motivo_atraso: string | null;
   total: string;
   itens: { nome_produto: string; quantidade: number; status: StatusPedido }[];
+}
+
+export interface ContaAcompanhamento {
+  nome_loja: string;
+  slug: string;
+  tipo_atendimento: string;
+  mesa_numero: string | null;
+  conta_aberta: boolean;
+  total: string;
+  pedidos: PedidoAcompanhamento[];
 }
