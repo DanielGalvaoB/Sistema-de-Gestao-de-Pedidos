@@ -276,6 +276,9 @@ class Pedido(Base):
     historico: Mapped[list['HistoricoStatusPedido']] = relationship(
         back_populates='pedido', order_by='HistoricoStatusPedido.id'
     )
+    pagamentos: Mapped[list['Pagamento']] = relationship(
+        order_by='Pagamento.id', viewonly=True
+    )
 
 
 class ItemPedido(Base):
@@ -351,6 +354,11 @@ class Pagamento(Base):
     )
     id_sessao: Mapped[int] = mapped_column(
         ForeignKey('sessao_atendimento.id', ondelete='RESTRICT'), index=True
+    )
+    # Pedido quitado por este pagamento (opcional: pagamentos da conta
+    # inteira nao apontam para um pedido especifico)
+    id_pedido: Mapped[int | None] = mapped_column(
+        ForeignKey('pedido.id', ondelete='RESTRICT'), index=True
     )
     valor: Mapped[Decimal] = mapped_column(Money)
     metodo: Mapped[str] = mapped_column(String(20))

@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     # URL publica do frontend, usada nos links dos QR Codes
     FRONTEND_URL: str = 'http://localhost:5173'
     APP_TIMEZONE: str = 'America/Sao_Paulo'
+    # Pasta onde ficam as imagens enviadas dos produtos
+    UPLOAD_DIR: str = './uploads'
+    MAX_UPLOAD_MB: int = 5
 
     @property
     def cors_origins_list(self) -> list[str]:

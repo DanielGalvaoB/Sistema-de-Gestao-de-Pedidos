@@ -19,8 +19,8 @@ router = APIRouter(prefix='/financeiro', tags=['financeiro'])
 
 
 @router.get('/categorias', response_model=list[CategoriaFinanceiraResponse])
-def list_categorias(db: DbSession, user: Financeiro, tipo: str | None = None):
-    return financeiro_crud.list_categorias(db, user.id_estabelecimento, tipo)
+def list_categorias(db: DbSession, user: Financeiro):
+    return financeiro_crud.list_categorias(db, user.id_estabelecimento)
 
 
 @router.post(
@@ -54,7 +54,6 @@ def list_movimentacoes(
     user: Financeiro,
     inicio: date | None = None,
     fim: date | None = None,
-    tipo: str | None = None,
     id_categoria: int | None = None,
     metodo: str | None = None,
     status_mov: str | None = None,
@@ -67,7 +66,6 @@ def list_movimentacoes(
         user.id_estabelecimento,
         ini,
         end,
-        tipo,
         id_categoria,
         metodo,
         status_mov,

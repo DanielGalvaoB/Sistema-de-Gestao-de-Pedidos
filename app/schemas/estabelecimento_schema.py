@@ -23,8 +23,6 @@ class EstabelecimentoUpdate(BaseModel):
     nome_titular: NonEmptyStr | None = Field(default=None, max_length=120)
     cidade: NonEmptyStr | None = Field(default=None, max_length=60)
     email: EmailStr | None = None
-    tempo_preparo_padrao_min: int | None = Field(default=None, ge=1, le=600)
-    alerta_atraso_percentual: int | None = Field(default=None, ge=10, le=100)
     taxa_servico_percentual: Decimal | None = Field(
         default=None, ge=0, le=30, decimal_places=2
     )
@@ -38,8 +36,6 @@ class EstabelecimentoResponse(ORMModel):
     nome_titular: str
     chave_pix: str
     cidade: str
-    tempo_preparo_padrao_min: int
-    alerta_atraso_percentual: int
     taxa_servico_percentual: Decimal
 
 

@@ -17,15 +17,13 @@ def _to_utc_naive(dt: datetime | None) -> datetime:
 
 
 # ----- Categorias financeiras -----
-def list_categorias(db: Session, id_estab: int, tipo: str | None = None):
+def list_categorias(db: Session, id_estab: int):
+    # Categorias de saida antigas ficam guardadas, mas nao sao mais usadas
     q = select(CategoriaFinanceira).where(
-        CategoriaFinanceira.id_estabelecimento == id_estab
+        CategoriaFinanceira.id_estabelecimento == id_estab,
+        CategoriaFinanceira.tipo == 'entrada',
     )
-    if tipo:
-        q = q.where(CategoriaFinanceira.tipo == tipo)
-    return db.scalars(
-        q.order_by(CategoriaFinanceira.tipo, CategoriaFinanceira.nome)
-    ).all()
+    return db.scalars(q.order_by(CategoriaFinanceira.nome)).all()
 
 
 def get_categoria(db: Session, id_estab: int, cat_id: int):
@@ -184,7 +182,6 @@ def list_movimentacoes(
     id_estab: int,
     inicio: datetime | None = None,
     fim: datetime | None = None,
-    tipo: str | None = None,
     id_categoria: int | None = None,
     metodo: str | None = None,
     status: str | None = None,
@@ -192,14 +189,15 @@ def list_movimentacoes(
     q = (
         select(MovimentacaoFinanceira)
         .options(selectinload(MovimentacaoFinanceira.categoria))
-        .where(MovimentacaoFinanceira.id_estabelecimento == id_estab)
+        .where(
+            MovimentacaoFinanceira.id_estabelecimento == id_estab,
+            MovimentacaoFinanceira.tipo == 'entrada',
+        )
     )
     if inicio:
         q = q.where(MovimentacaoFinanceira.data_hora >= inicio)
     if fim:
         q = q.where(MovimentacaoFinanceira.data_hora < fim)
-    if tipo:
-        q = q.where(MovimentacaoFinanceira.tipo == tipo)
     if id_categoria:
         q = q.where(MovimentacaoFinanceira.id_categoria == id_categoria)
     if metodo:

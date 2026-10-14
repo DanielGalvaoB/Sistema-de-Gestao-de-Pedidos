@@ -145,3 +145,107 @@ def test_excluir_produto_vendido_apenas_desativa(client, loja):
     assert client.get(f'/menu/{pid}', headers=h).json()['ativo'] is False
     r = client.delete(f'/menu/{loja["suco"]["id"]}', headers=h)
     assert r.headers['X-Resultado'] == 'excluido'
+
+
+def _png(tamanho=(1600, 900), cor=(200, 30, 30)):
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    Image.new('RGB', tamanho, cor).save(buf, 'PNG')
+    return buf.getvalue()
+
+
+def test_upload_de_imagem_do_produto(client, loja):
+    import io
+
+    from PIL import Image
+
+    h = loja['h']
+    pid = loja['x']['id']
+    r = client.post(
+        f'/menu/{pid}/imagem',
+        files={'arquivo': ('foto.png', _png(), 'image/png')},
+        headers=h,
+    )
+    assert r.status_code == 200, r.text
+    url = r.json()['url_imagem']
+    assert url.startswith('/uploads/produtos/') and url.endswith('.webp')
+
+    servida = client.get(url)
+    assert servida.status_code == 200
+    assert servida.headers['content-type'] == 'image/webp'
+    img = Image.open(io.BytesIO(servida.content))
+    assert img.format == 'WEBP' and max(img.size) == 1200  # redimensionada
+
+    # Aparece no cardapio publico
+    body = client.get(f'/public/{loja["est"]["slug"]}').json()
+    produto = next(
+        p for p in body['categorias'][0]['produtos'] if p['id'] == pid
+    )
+    assert produto['url_imagem'] == url
+
+    # Substituir apaga o arquivo antigo
+    r2 = client.post(
+        f'/menu/{pid}/imagem',
+        files={'arquivo': ('nova.png', _png(cor=(0, 0, 255)), 'image/png')},
+        headers=h,
+    )
+    assert r2.json()['url_imagem'] != url
+    assert client.get(url).status_code == 404
+
+    r3 = client.delete(f'/menu/{pid}/imagem', headers=h)
+    assert r3.json()['url_imagem'] is None
+    assert client.get(r2.json()['url_imagem']).status_code == 404
+
+
+def test_upload_rejeita_arquivo_invalido(client, loja):
+    from tests.conftest import criar_usuario, registrar
+
+    h = loja['h']
+    pid = loja['x']['id']
+    r = client.post(
+        f'/menu/{pid}/imagem',
+        files={
+            'arquivo': ('foto.png', b'<script>alert(1)</script>', 'image/png')
+        },
+        headers=h,
+    )
+    assert r.status_code == 422
+    _, outro = registrar(client)
+    r = client.post(
+        f'/menu/{pid}/imagem',
+        files={'arquivo': ('foto.png', _png(), 'image/png')},
+        headers=outro,
+    )
+    assert r.status_code == 404
+    cozinha = criar_usuario(client, h, 'cozinha')
+    r = client.post(
+        f'/menu/{pid}/imagem',
+        files={'arquivo': ('foto.png', _png(), 'image/png')},
+        headers=cozinha,
+    )
+    assert r.status_code == 403
+
+
+def test_contas_com_pedidos_no_caixa(client, loja):
+    h = loja['h']
+    client.post(
+        '/pedidos/',
+        json={
+            'tipo': 'balcao',
+            'cliente_nome': 'Bia',
+            'itens': [{'id_menu': loja['x']['id'], 'quantidade': 2}],
+        },
+        headers=h,
+    )
+    contas = client.get(
+        '/contas/',
+        params={'status': ['aberta'], 'com_pedidos': True},
+        headers=h,
+    ).json()
+    assert len(contas) == 1
+    c = contas[0]
+    assert c['cliente_nome'] == 'Bia' and c['resumo']['total'] == '51.00'
+    assert c['pedidos'][0]['itens'][0]['nome_produto'] == 'X-Burger'

@@ -101,6 +101,37 @@ export async function api<T = unknown>(path: string, opts: Opts = {}): Promise<T
   return (await res.json()) as T;
 }
 
+/** Envia multipart/form-data (upload de arquivos). */
+export async function apiUpload<T = unknown>(path: string, form: FormData): Promise<T> {
+  const headers: Record<string, string> = {};
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+  let res: Response;
+  try {
+    res = await fetch(buildUrl(path), { method: 'POST', headers, body: form });
+  } catch {
+    throw new ApiError(0, 'Sem conexao com o servidor');
+  }
+  if (!res.ok) {
+    let body: unknown = null;
+    try {
+      body = await res.json();
+    } catch {
+      /* corpo vazio */
+    }
+    throw new ApiError(res.status, mensagemDeErro(res.status, body));
+  }
+  return (await res.json()) as T;
+}
+
+/** URL de exibicao de uma imagem: uploads locais passam pela API. */
+export function imgUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return url.startsWith('/uploads/') ? `${API_URL}${url}` : url;
+}
+
+export const MAX_IMAGEM_MB = 5;
+
 /** Baixa um arquivo autenticado (CSV/PDF). */
 export async function baixarArquivo(path: string, query: Opts['query'], nome: string) {
   const res = await api<Response>(path, { query, raw: true });

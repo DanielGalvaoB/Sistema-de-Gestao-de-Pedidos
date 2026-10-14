@@ -26,17 +26,15 @@ def resumo(
     db: DbSession,
     user: Financeiro,
     metodo: str | None = None,
-    id_categoria: int | None = None,
 ):
     _validar(inicio, fim)
     return relatorio_crud.resumo(
-        db, user.id_estabelecimento, inicio, fim, metodo, id_categoria
+        db, user.id_estabelecimento, inicio, fim, metodo
     )
 
 
-def _filtros(tipo, id_categoria, metodo, status_mov):
+def _filtros(id_categoria, metodo, status_mov):
     return {
-        'tipo': tipo,
         'id_categoria': id_categoria,
         'metodo': metodo,
         'status': status_mov,
@@ -49,7 +47,6 @@ def extrato_csv(
     fim: date,
     db: DbSession,
     user: Financeiro,
-    tipo: str | None = None,
     id_categoria: int | None = None,
     metodo: str | None = None,
     status_mov: str | None = None,
@@ -60,7 +57,7 @@ def extrato_csv(
         user.id_estabelecimento,
         inicio,
         fim,
-        **_filtros(tipo, id_categoria, metodo, status_mov),
+        **_filtros(id_categoria, metodo, status_mov),
     )
     nome = f'extrato_{inicio}_{fim}.csv'
     return Response(
@@ -76,7 +73,6 @@ def extrato_pdf(
     fim: date,
     db: DbSession,
     user: Financeiro,
-    tipo: str | None = None,
     id_categoria: int | None = None,
     metodo: str | None = None,
     status_mov: str | None = None,
@@ -88,7 +84,7 @@ def extrato_pdf(
         user.estabelecimento.nome_loja,
         inicio,
         fim,
-        **_filtros(tipo, id_categoria, metodo, status_mov),
+        **_filtros(id_categoria, metodo, status_mov),
     )
     nome = f'extrato_{inicio}_{fim}.pdf'
     return Response(

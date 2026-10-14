@@ -1,5 +1,7 @@
 """Rotas publicas: cardapio digital, envio e acompanhamento de pedidos."""
 
+from decimal import Decimal
+
 from fastapi import APIRouter, status
 from pydantic import BaseModel
 
@@ -12,10 +14,15 @@ from app.crud import (
     pedido_crud,
 )
 from app.dependencies.auth_dep import DbSession
+from app.models.models import STATUS_SESSAO_ABERTA
 from app.schemas.categoria_schema import CategoriaResponse
 from app.schemas.estabelecimento_schema import EstabelecimentoPublico
 from app.schemas.menu_schema import MenuResponse
-from app.schemas.pedido_schema import PedidoAcompanhamento, PedidoPublicoCreate
+from app.schemas.pedido_schema import (
+    ContaAcompanhamento,
+    PedidoAcompanhamento,
+    PedidoPublicoCreate,
+)
 
 router = APIRouter(prefix='/public', tags=['publico'])
 
@@ -64,8 +71,17 @@ def cardapio(slug: str, db: DbSession, mesa: str | None = None):
 )
 def enviar_pedido(slug: str, data: PedidoPublicoCreate, db: DbSession):
     estab = estabelecimento_crud.get_por_slug(db, slug)
+    mesa = None
     if data.mesa_token:
         mesa = mesa_crud.get_mesa_por_token(db, estab.id, data.mesa_token)
+    origem = None
+    if data.codigo_origem:
+        origem = pedido_crud.get_por_codigo(db, data.codigo_origem)
+        if origem.id_estabelecimento != estab.id:
+            raise BusinessRuleError('Pedido de origem invalido')
+    if origem is not None:
+        sessao = pedido_crud.sessao_para_novo_pedido(db, estab, origem, mesa)
+    elif mesa is not None:
         sessao = pedido_crud.abrir_sessao_para_pedido(db, estab, mesa=mesa)
     else:
         if data.tipo == 'mesa':
@@ -81,14 +97,13 @@ def enviar_pedido(slug: str, data: PedidoPublicoCreate, db: DbSession):
     )
 
 
-@router.get('/pedidos/{codigo}', response_model=PedidoAcompanhamento)
-def acompanhar(codigo: str, db: DbSession):
-    pedido = pedido_crud.get_por_codigo(db, codigo)
+def _acompanhamento(pedido) -> dict:
     dados = pedido_crud.pedido_to_dict(pedido, pedido.estabelecimento)
     return {
         **dados,
         'numero': pedido.id,
         'nome_loja': pedido.estabelecimento.nome_loja,
+        'slug': pedido.estabelecimento.slug,
         'itens': [
             {
                 'nome_produto': i['nome_produto'],
@@ -97,4 +112,31 @@ def acompanhar(codigo: str, db: DbSession):
             }
             for i in dados['itens']
         ],
+    }
+
+
+@router.get('/pedidos/{codigo}', response_model=PedidoAcompanhamento)
+def acompanhar(codigo: str, db: DbSession):
+    return _acompanhamento(pedido_crud.get_por_codigo(db, codigo))
+
+
+@router.get('/pedidos/{codigo}/conta', response_model=ContaAcompanhamento)
+def acompanhar_conta(codigo: str, db: DbSession):
+    """Todos os pedidos da mesma conta do pedido informado."""
+    pedido = pedido_crud.get_por_codigo(db, codigo)
+    sessao = pedido.sessao
+    pedidos = pedido_crud.list_pedidos(
+        db, pedido.id_estabelecimento, id_sessao=sessao.id
+    )
+    total = sum(
+        (pedido_crud.total_pedido(p) for p in pedidos), start=Decimal('0')
+    )
+    return {
+        'nome_loja': pedido.estabelecimento.nome_loja,
+        'slug': pedido.estabelecimento.slug,
+        'tipo_atendimento': sessao.tipo,
+        'mesa_numero': sessao.mesa.numero if sessao.mesa else None,
+        'conta_aberta': sessao.status in STATUS_SESSAO_ABERTA,
+        'total': total,
+        'pedidos': [_acompanhamento(p) for p in pedidos],
     }

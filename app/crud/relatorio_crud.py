@@ -1,12 +1,11 @@
-"""Relatorios financeiros.
+"""Relatorios de vendas e recebimentos.
 
-Criterios (nao misturados):
+O sistema controla apenas o que entra; gastos do estabelecimento nao fazem
+parte dele. Criterios (nao misturados):
 - Vendas: itens nao cancelados de pedidos nao cancelados, pela data do
   pedido. Valor bruto dos itens (descontos/acrescimos ficam na conta).
 - Recebido: pagamentos confirmados (nao estornados), pela data do pagamento.
-- Entradas/Despesas: movimentacoes financeiras ativas, pela data da
-  movimentacao. Entradas incluem os recebimentos de vendas (lancados
-  automaticamente) e receitas adicionais.
+- Outras entradas: entradas manuais ativas, pela data do lancamento.
 - Pendente: saldo das contas ainda abertas que foram abertas no periodo.
 """
 
@@ -34,10 +33,8 @@ from app.models.models import (
 CRITERIOS = {
     'vendas': 'Itens nao cancelados, pela data do pedido (valor bruto)',
     'recebido': 'Pagamentos confirmados, pela data do pagamento',
-    'despesas': 'Saidas ativas, pela data da movimentacao',
-    'entradas': 'Entradas ativas (inclui recebimentos), pela data da '
-    'movimentacao',
-    'saldo': 'Entradas menos saidas no periodo',
+    'outras_entradas': 'Entradas manuais ativas, pela data do lancamento',
+    'total_entradas': 'Recebido mais outras entradas',
     'pendente': 'Saldo das contas abertas no periodo e ainda nao quitadas',
 }
 
@@ -51,15 +48,10 @@ def resumo(
     inicio: date,
     fim: date,
     metodo: str | None = None,
-    id_categoria: int | None = None,
 ) -> dict:
     ini, end = periodo_utc(inicio, fim)
     dias = {
-        inicio + timedelta(days=i): {
-            'vendas': ZERO,
-            'recebido': ZERO,
-            'despesas': ZERO,
-        }
+        inicio + timedelta(days=i): {'vendas': ZERO, 'recebido': ZERO}
         for i in range((fim - inicio).days + 1)
     }
 
@@ -90,7 +82,7 @@ def resumo(
             dias[dia]['vendas'] += valor_pedido
     qtd_pedidos = len(pedidos)
 
-    # Recebimentos
+    # Recebimentos dos pedidos
     q_pag = select(Pagamento).where(
         Pagamento.id_estabelecimento == id_estab,
         Pagamento.status == 'confirmado',
@@ -109,29 +101,17 @@ def resumo(
         if dia in dias:
             dias[dia]['recebido'] += pag.valor
 
-    # Movimentacoes
-    movs = list_movimentacoes(
-        db,
-        id_estab,
-        ini,
-        end,
-        status='ativa',
-        id_categoria=id_categoria,
-        metodo=metodo,
+    # Outras entradas (lancamentos manuais, sem pagamento de pedido)
+    outras = sum(
+        (
+            m.valor
+            for m in list_movimentacoes(
+                db, id_estab, ini, end, status='ativa', metodo=metodo
+            )
+            if m.id_pagamento is None
+        ),
+        start=ZERO,
     )
-    total_entradas = ZERO
-    total_despesas = ZERO
-    por_categoria: dict[str, list] = defaultdict(lambda: [ZERO, 0])
-    for m in movs:
-        if m.tipo == 'entrada':
-            total_entradas += m.valor
-        else:
-            total_despesas += m.valor
-            por_categoria[m.categoria.nome][0] += m.valor
-            por_categoria[m.categoria.nome][1] += 1
-            dia = to_local(m.data_hora).date()
-            if dia in dias:
-                dias[dia]['despesas'] += m.valor
 
     # Pendente
     sessoes = db.scalars(
@@ -152,45 +132,36 @@ def resumo(
         start=ZERO,
     )
 
-    def _rank(d, limite=10):
-        itens = sorted(d.items(), key=lambda kv: kv[1][0], reverse=True)
+    def _rank(d, chave=0, limite=10):
+        itens = sorted(d.items(), key=lambda kv: kv[1][chave], reverse=True)
         return [
             {'rotulo': k, 'valor': q2(v[0]), 'quantidade': v[1]}
             for k, v in itens[:limite]
         ]
 
-    top_produtos = sorted(
-        produtos.items(), key=lambda kv: kv[1][1], reverse=True
-    )[:10]
     return {
         'inicio': inicio,
         'fim': fim,
         'criterios': CRITERIOS,
         'total_vendas': q2(total_vendas),
         'total_recebido': q2(total_recebido),
-        'total_entradas': q2(total_entradas),
-        'total_despesas': q2(total_despesas),
-        'saldo': q2(total_entradas - total_despesas),
+        'outras_entradas': q2(outras),
+        'total_entradas': q2(total_recebido + outras),
         'pendente_recebimento': q2(pendente),
         'quantidade_pedidos': qtd_pedidos,
         'ticket_medio': q2(total_vendas / qtd_pedidos)
         if qtd_pedidos
         else q2(0),
-        'produtos_mais_vendidos': [
-            {'rotulo': k, 'valor': q2(v[0]), 'quantidade': v[1]}
-            for k, v in top_produtos
-        ],
+        'produtos_mais_vendidos': _rank(produtos, chave=1),
         'vendas_por_dia': [
             {
                 'dia': d,
                 'vendas': q2(v['vendas']),
                 'recebido': q2(v['recebido']),
-                'despesas': q2(v['despesas']),
             }
             for d, v in sorted(dias.items())
         ],
         'recebido_por_metodo': _rank(por_metodo),
-        'despesas_por_categoria': _rank(por_categoria),
     }
 
 
@@ -206,7 +177,6 @@ def extrato_csv(db, id_estab, inicio, fim, **filtros) -> str:
     w.writerow([
         'id',
         'data_hora',
-        'tipo',
         'categoria',
         'descricao',
         'metodo',
@@ -218,7 +188,6 @@ def extrato_csv(db, id_estab, inicio, fim, **filtros) -> str:
         w.writerow([
             m['id'],
             to_local(m['data_hora']).strftime('%d/%m/%Y %H:%M'),
-            m['tipo'],
             m['categoria_nome'],
             m['descricao'],
             m['metodo_pagamento'] or '',
@@ -241,34 +210,28 @@ def extrato_pdf(db, id_estab, nome_loja, inicio, fim, **filtros) -> bytes:
     pdf.set_auto_page_break(auto=True, margin=12)
     pdf.add_page()
     pdf.set_font('Helvetica', 'B', 14)
-    pdf.cell(0, 8, _latin1(f'Extrato financeiro - {nome_loja}'), **_NL)
+    pdf.cell(0, 8, _latin1(f'Extrato de recebimentos - {nome_loja}'), **_NL)
     pdf.set_font('Helvetica', '', 10)
-    pdf.cell(
-        0,
-        6,
-        f'Periodo: {inicio:%d/%m/%Y} a {fim:%d/%m/%Y}',
-        **_NL,
-    )
+    pdf.cell(0, 6, f'Periodo: {inicio:%d/%m/%Y} a {fim:%d/%m/%Y}', **_NL)
     pdf.cell(
         0,
         6,
         _latin1(
             f'Vendas: R$ {res["total_vendas"]}   Recebido: R$ '
-            f'{res["total_recebido"]}   Entradas: R$ {res["total_entradas"]}'
-            f'   Despesas: R$ {res["total_despesas"]}   Saldo: R$ '
-            f'{res["saldo"]}'
+            f'{res["total_recebido"]}   Outras entradas: R$ '
+            f'{res["outras_entradas"]}   A receber: R$ '
+            f'{res["pendente_recebimento"]}'
         ),
         **_NL,
     )
     pdf.ln(2)
     cols = [
-        ('Data', 30),
-        ('Tipo', 18),
+        ('Data', 32),
         ('Categoria', 45),
-        ('Descricao', 95),
-        ('Metodo', 30),
-        ('Valor', 28),
-        ('Status', 24),
+        ('Descricao', 110),
+        ('Metodo', 32),
+        ('Valor', 30),
+        ('Status', 26),
     ]
     pdf.set_font('Helvetica', 'B', 9)
     for titulo, larg in cols:
@@ -278,9 +241,8 @@ def extrato_pdf(db, id_estab, nome_loja, inicio, fim, **filtros) -> bytes:
     for m in linhas:
         valores = [
             to_local(m['data_hora']).strftime('%d/%m/%Y %H:%M'),
-            m['tipo'],
             m['categoria_nome'][:28],
-            m['descricao'][:62],
+            m['descricao'][:72],
             m['metodo_pagamento'] or '',
             f'{q2(m["valor"])}',
             m['status'],

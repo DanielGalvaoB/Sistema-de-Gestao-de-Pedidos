@@ -1,9 +1,11 @@
+import { CircleDollarSign, ExternalLink, MessageSquareText, ReceiptText } from 'lucide-react';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { Pedido } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
-import { Badge, Empty, ErrorBox, Loading, Modal } from '../../components/ui';
+import { ModalPagamentoPedido } from '../../components/PagamentoPedido';
+import { Badge, Empty, ErrorBox, Loading, Modal, PageHeader } from '../../components/ui';
 import { useAsync } from '../../hooks/useAsync';
 import { useRealtime } from '../../hooks/useRealtime';
 import { atendimento, dataHora, duracao, hojeISO, hora, money, STATUS_LABEL } from '../../utils/format';
@@ -22,14 +24,14 @@ export default function Pedidos() {
   );
   useRealtime(() => recarregar(true), 20000);
   const [detalhe, setDetalhe] = useState<number | null>(null);
+  const [pagando, setPagando] = useState<Pedido | null>(null);
+  const podeReceber = pode('atendente', 'financeiro');
 
   const lista = (data || []).filter((p) => !soAtrasados || p.atrasado);
 
   return (
     <div>
-      <div className="pagina-topo">
-        <h1>Pedidos</h1>
-      </div>
+      <PageHeader icone={ReceiptText} titulo="Pedidos" subtitulo="Histórico, prazos e pagamentos dos pedidos" />
       <div className="filtros">
         <label>
           De <input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} />
@@ -69,6 +71,7 @@ export default function Pedidos() {
                 <th>Status</th>
                 <th>Prazo</th>
                 <th className="num">Total</th>
+                <th>Pagamento</th>
               </tr>
             </thead>
             <tbody>
@@ -79,7 +82,7 @@ export default function Pedidos() {
                   <td>
                     {pode('atendente') ? <Link to={`/admin/contas/${p.id_sessao}`} onClick={(e) => e.stopPropagation()}>{atendimento(p)}</Link> : atendimento(p)}
                   </td>
-                  <td className="small">{p.itens.map((i) => `${i.quantidade}× ${i.nome_produto}`).join(', ')}</td>
+                  <td className="small">{p.itens.map((i) => `${i.quantidade}x ${i.nome_produto}`).join(', ')}</td>
                   <td>
                     <Badge status={p.status} />
                   </td>
@@ -93,6 +96,19 @@ export default function Pedidos() {
                     )}
                   </td>
                   <td className="num">{money(p.total)}</td>
+                  <td onClick={(e) => e.stopPropagation()}>
+                    {p.status === 'cancelado' ? (
+                      '-'
+                    ) : p.pago ? (
+                      <Badge status="paga">Pago</Badge>
+                    ) : podeReceber && ['pronto', 'entregue'].includes(p.status) ? (
+                      <button className="btn btn-sm btn-pagar" onClick={() => setPagando(p)}>
+                        <CircleDollarSign size={14} /> Confirmar
+                      </button>
+                    ) : (
+                      <Badge status="pendente">A pagar</Badge>
+                    )}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -100,6 +116,7 @@ export default function Pedidos() {
         </div>
       )}
       {detalhe && <ModalDetalhe id={detalhe} onClose={() => setDetalhe(null)} />}
+      {pagando && <ModalPagamentoPedido pedido={pagando} onClose={() => setPagando(null)} onPago={() => recarregar(true)} />}
     </div>
   );
 }
@@ -117,8 +134,17 @@ function ModalDetalhe({ id, onClose }: { id: number; onClose: () => void }) {
           <div>
             <Badge status={p.status} /> {atendimento(p)} · entrada {dataHora(p.created_at)} · origem {p.origem}
           </div>
-          {p.observacao && <p>📝 {p.observacao}</p>}
+          {p.observacao && (
+            <p className="com-icone">
+              <MessageSquareText size={16} /> {p.observacao}
+            </p>
+          )}
           {p.motivo_atraso && <p>Motivo do atraso: {p.motivo_atraso}</p>}
+          <div className="acoes">
+            <Link to={`/admin/contas/${p.id_sessao}`} className="btn btn-sm">
+              <ExternalLink size={14} /> Abrir conta #{p.id_sessao}
+            </Link>
+          </div>
           <p className="small">
             Link de acompanhamento do cliente:{' '}
             <a href={`/pedido/${p.codigo_acompanhamento}`} target="_blank" rel="noreferrer">
@@ -129,7 +155,7 @@ function ModalDetalhe({ id, onClose }: { id: number; onClose: () => void }) {
             {p.itens.map((i) => (
               <li key={i.id}>
                 <span>
-                  {i.quantidade}× {i.nome_produto} {i.observacao && <em className="muted">({i.observacao})</em>}
+                  {i.quantidade}x {i.nome_produto} {i.observacao && <em className="muted">({i.observacao})</em>}
                 </span>
                 <span>
                   <Badge status={i.status} /> {money(i.subtotal)}
@@ -143,7 +169,7 @@ function ModalDetalhe({ id, onClose }: { id: number; onClose: () => void }) {
               <li key={k}>
                 <span className="muted">{dataHora(h.criado_em)}</span>{' '}
                 {h.id_item ? `Item ${p.itens.find((i) => i.id === h.id_item)?.nome_produto ?? h.id_item}` : 'Pedido'}:{' '}
-                {h.status_anterior ? `${STATUS_LABEL[h.status_anterior]} → ` : ''}
+                {h.status_anterior ? `${STATUS_LABEL[h.status_anterior]} para ` : ''}
                 {STATUS_LABEL[h.status_novo]}
                 {h.motivo && <em> — {h.motivo}</em>}
               </li>

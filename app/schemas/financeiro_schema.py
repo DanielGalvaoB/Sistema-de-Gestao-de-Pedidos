@@ -6,12 +6,13 @@ from pydantic import BaseModel, Field
 
 from app.schemas.common import NonEmptyStr, ORMModel, PositiveMoney
 
-TipoMov = Literal['entrada', 'saida']
+# O sistema controla apenas o que entra (sem despesas do estabelecimento)
+TipoMov = Literal['entrada']
 
 
 class CategoriaFinanceiraCreate(BaseModel):
     nome: NonEmptyStr = Field(max_length=80)
-    tipo: TipoMov
+    tipo: TipoMov = 'entrada'
 
 
 class CategoriaFinanceiraUpdate(BaseModel):
@@ -28,7 +29,7 @@ class CategoriaFinanceiraResponse(ORMModel):
 
 
 class MovimentacaoCreate(BaseModel):
-    tipo: TipoMov
+    tipo: TipoMov = 'entrada'
     descricao: NonEmptyStr = Field(max_length=200)
     id_categoria: int
     valor: PositiveMoney
@@ -76,7 +77,6 @@ class SerieDia(BaseModel):
     dia: date
     vendas: Decimal
     recebido: Decimal
-    despesas: Decimal
 
 
 class ValorRotulo(BaseModel):
@@ -91,13 +91,11 @@ class RelatorioResumo(BaseModel):
     criterios: dict[str, str]
     total_vendas: Decimal
     total_recebido: Decimal
+    outras_entradas: Decimal
     total_entradas: Decimal
-    total_despesas: Decimal
-    saldo: Decimal
     pendente_recebimento: Decimal
     quantidade_pedidos: int
     ticket_medio: Decimal
     produtos_mais_vendidos: list[ValorRotulo]
     vendas_por_dia: list[SerieDia]
     recebido_por_metodo: list[ValorRotulo]
-    despesas_por_categoria: list[ValorRotulo]

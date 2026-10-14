@@ -1,3 +1,4 @@
+import { KeyRound, Pencil, QrCode, Settings, Store, UserPlus, Users } from 'lucide-react';
 import { useEffect, useState, type FormEvent } from 'react';
 import { api } from '../../api/client';
 import type { Estabelecimento, Perfil, Usuario } from '../../api/types';
@@ -12,7 +13,15 @@ export default function Configuracoes() {
   return (
     <div>
       <div className="pagina-topo">
-        <h1>Configurações</h1>
+        <div className="pagina-titulo">
+          <span className="pagina-icone">
+            <Settings size={22} strokeWidth={1.75} />
+          </span>
+          <div>
+            <h1>Configurações</h1>
+            <p className="muted small">Dados da loja, operação, usuários e senha</p>
+          </div>
+        </div>
       </div>
       {pode() && <DadosLoja />}
       {pode() && <Usuarios />}
@@ -44,8 +53,6 @@ function DadosLoja() {
           chave_pix: f.chave_pix,
           cidade: f.cidade,
           email: f.email,
-          tempo_preparo_padrao_min: Number(f.tempo_preparo_padrao_min),
-          alerta_atraso_percentual: Number(f.alerta_atraso_percentual),
           taxa_servico_percentual: Number(f.taxa_servico_percentual).toFixed(2),
         },
       });
@@ -60,7 +67,9 @@ function DadosLoja() {
 
   return (
     <section className="card">
-      <h2>Estabelecimento</h2>
+      <h2 className="card-titulo">
+        <Store size={18} /> Estabelecimento
+      </h2>
       <form className="form" onSubmit={salvar}>
         <div className="grid-2">
           <label>
@@ -84,14 +93,6 @@ function DadosLoja() {
             <input value={f.cidade || ''} onChange={set('cidade')} required />
           </label>
           <label>
-            Tempo de preparo padrão (min)
-            <input type="number" min={1} max={600} value={f.tempo_preparo_padrao_min ?? ''} onChange={set('tempo_preparo_padrao_min')} />
-          </label>
-          <label>
-            Alerta de prazo (% do tempo previsto)
-            <input type="number" min={10} max={100} value={f.alerta_atraso_percentual ?? ''} onChange={set('alerta_atraso_percentual')} />
-          </label>
-          <label>
             Taxa de serviço (%)
             <input type="number" min={0} max={30} step="0.01" value={f.taxa_servico_percentual ?? ''} onChange={set('taxa_servico_percentual')} />
           </label>
@@ -102,7 +103,7 @@ function DadosLoja() {
             className="btn"
             onClick={async () => setQr(await api('/estabelecimentos/me/qrcode'))}
           >
-            QR Code do cardápio geral
+            <QrCode size={16} /> QR Code do cardápio geral
           </button>
           <button className="btn btn-primario">Salvar</button>
         </div>
@@ -119,9 +120,11 @@ function Usuarios() {
   return (
     <section className="card">
       <div className="pagina-topo">
-        <h2>Usuários</h2>
+        <h2 className="card-titulo">
+          <Users size={18} /> Usuários
+        </h2>
         <button className="btn btn-primario" onClick={() => setEdit('novo')}>
-          + Usuário
+          <UserPlus size={16} /> Usuário
         </button>
       </div>
       {erro && <ErrorBox erro={erro} />}
@@ -147,7 +150,7 @@ function Usuarios() {
                 <td>{u.ativo ? <Badge status="ativa">Ativo</Badge> : <Badge status="cancelado">Inativo</Badge>}</td>
                 <td>
                   <button className="btn btn-sm" onClick={() => setEdit(u)}>
-                    Editar
+                    <Pencil size={14} /> Editar
                   </button>
                 </td>
               </tr>
@@ -245,7 +248,9 @@ function MinhaSenha() {
   const [nova, setNova] = useState('');
   return (
     <section className="card">
-      <h2>Alterar minha senha</h2>
+      <h2 className="card-titulo">
+        <KeyRound size={18} /> Alterar minha senha
+      </h2>
       <form
         className="form grid-2"
         onSubmit={async (e) => {

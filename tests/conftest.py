@@ -1,7 +1,9 @@
 import os
+import tempfile  # noqa: E402
 import uuid
 
 os.environ.setdefault('BCRYPT_ROUNDS', '4')
+os.environ.setdefault('UPLOAD_DIR', tempfile.mkdtemp(prefix='pdv_uploads_'))
 os.environ.setdefault('SECRET_KEY', 'chave-de-teste-com-pelo-menos-32-bytes!!')
 
 import pytest  # noqa: E402
@@ -106,7 +108,6 @@ def loja(client):
             'nome': 'Suco',
             'preco': '8.00',
             'id_categoria': cat_id,
-            'tempo_preparo_min': 5,
         },
         headers=h,
     ).json()

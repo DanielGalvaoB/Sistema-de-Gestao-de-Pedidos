@@ -1,28 +1,61 @@
-import { useState, type FormEvent } from 'react';
+import { Armchair, ChevronRight, CircleDollarSign, CreditCard, Plus, Search, ShoppingBag, Store } from 'lucide-react';
+import { useMemo, useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { Conta } from '../../api/types';
+import type { Conta, Pedido } from '../../api/types';
 import { useAuth } from '../../auth/AuthContext';
+import { ModalPagamentoPedido } from '../../components/PagamentoPedido';
 import { Badge, Empty, ErrorBox, Loading, Modal } from '../../components/ui';
 import { useAsync } from '../../hooks/useAsync';
 import { useRealtime } from '../../hooks/useRealtime';
-import { dataHora, money, TIPO_LABEL } from '../../utils/format';
+import { dataHora, hora, money, TIPO_LABEL } from '../../utils/format';
+
+function tituloConta(c: Conta) {
+  if (c.mesa_numero) return `Mesa ${c.mesa_numero}`;
+  return `${TIPO_LABEL[c.tipo]}${c.cliente_nome ? ` · ${c.cliente_nome}` : ''}`;
+}
 
 export default function Caixa() {
   const { pode } = useAuth();
   const [filtro, setFiltro] = useState<'abertas' | 'encerradas'>('abertas');
+  const [busca, setBusca] = useState('');
   const status = filtro === 'abertas' ? ['aberta', 'aguardando_pagamento'] : ['encerrada', 'cancelada'];
   const { data, erro, carregando, recarregar } = useAsync(
-    () => api<Conta[]>('/contas/', { query: { status } }),
+    () => api<Conta[]>('/contas/', { query: { status, com_pedidos: true } }),
     [filtro],
   );
-  useRealtime(() => recarregar(true), 15000);
+  // Contas novas (pedidos feitos no cardapio) aparecem sozinhas
+  useRealtime(() => recarregar(true), 10000);
   const [nova, setNova] = useState(false);
+  const [pagando, setPagando] = useState<Pedido | null>(null);
+
+  const contas = useMemo(() => {
+    const termo = busca.trim().toLowerCase();
+    if (!termo) return data || [];
+    return (data || []).filter(
+      (c) =>
+        tituloConta(c).toLowerCase().includes(termo) ||
+        String(c.id) === termo.replace('#', '') ||
+        c.pedidos?.some((p) => String(p.id) === termo.replace('#', '')),
+    );
+  }, [data, busca]);
+
+  const saldoTotal = (data || []).reduce((s, c) => s + Math.max(Number(c.resumo.saldo), 0), 0);
 
   return (
     <div>
       <div className="pagina-topo">
-        <h1>Caixa · contas</h1>
+        <div className="pagina-titulo">
+          <span className="pagina-icone">
+            <CreditCard size={22} strokeWidth={1.75} />
+          </span>
+          <div>
+            <h1>Caixa</h1>
+            <p className="muted small">
+              Cada pedido abre sua conta automaticamente. Toque em uma conta para receber, ajustar ou encerrar.
+            </p>
+          </div>
+        </div>
         <div className="acoes">
           <div className="segmentado">
             <button className={filtro === 'abertas' ? 'ativo' : ''} onClick={() => setFiltro('abertas')}>
@@ -34,55 +67,129 @@ export default function Caixa() {
           </div>
           {pode('atendente') && (
             <button className="btn btn-primario" onClick={() => setNova(true)}>
-              + Conta balcão/retirada
+              <Plus size={16} /> Nova conta
             </button>
           )}
         </div>
       </div>
+
+      <div className="filtros">
+        <div className="input-icone">
+          <Search size={16} />
+          <input
+            placeholder="Buscar por mesa, cliente, nº da conta ou do pedido"
+            value={busca}
+            onChange={(e) => setBusca(e.target.value)}
+          />
+        </div>
+        {filtro === 'abertas' && data && (
+          <span className="muted small">
+            {data.length} conta(s) em aberto · <strong className="texto-erro">{money(saldoTotal)}</strong> a receber
+          </span>
+        )}
+      </div>
+
       {erro && <ErrorBox erro={erro} onRetry={() => recarregar()} />}
       {carregando && !data ? (
         <Loading />
-      ) : data?.length === 0 ? (
-        <Empty>Nenhuma conta {filtro === 'abertas' ? 'em aberto' : 'encerrada'}.</Empty>
+      ) : contas.length === 0 ? (
+        <Empty icone={CreditCard}>
+          {busca ? 'Nenhuma conta encontrada.' : `Nenhuma conta ${filtro === 'abertas' ? 'em aberto' : 'encerrada'}.`}
+        </Empty>
       ) : (
-        <div className="tabela-wrap">
-          <table className="tabela">
-            <thead>
-              <tr>
-                <th>Conta</th>
-                <th>Atendimento</th>
-                <th>Aberta em</th>
-                <th>Status</th>
-                <th className="num">Total</th>
-                <th className="num">Pago</th>
-                <th className="num">Saldo</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data?.map((c) => (
-                <tr key={c.id}>
-                  <td>
-                    <Link to={`/admin/contas/${c.id}`}>#{c.id}</Link>
-                  </td>
-                  <td>
-                    {c.mesa_numero ? `Mesa ${c.mesa_numero}` : TIPO_LABEL[c.tipo]}
-                    {c.cliente_nome && ` · ${c.cliente_nome}`}
-                  </td>
-                  <td>{dataHora(c.aberta_em)}</td>
-                  <td>
-                    <Badge status={c.status} />
-                  </td>
-                  <td className="num">{money(c.resumo.total)}</td>
-                  <td className="num">{money(c.resumo.total_pago)}</td>
-                  <td className={`num ${Number(c.resumo.saldo) > 0 ? 'texto-erro' : ''}`}>{money(c.resumo.saldo)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="contas-grid">
+          {contas.map((c) => (
+            <CartaoConta key={c.id} conta={c} onPagar={pode('atendente', 'financeiro') ? setPagando : undefined} />
+          ))}
         </div>
       )}
       {nova && <ModalNovaConta onClose={() => setNova(false)} />}
+      {pagando && <ModalPagamentoPedido pedido={pagando} onClose={() => setPagando(null)} onPago={() => recarregar(true)} />}
     </div>
+  );
+}
+
+function CartaoConta({ conta: c, onPagar }: { conta: Conta; onPagar?: (p: Pedido) => void }) {
+  const navigate = useNavigate();
+  const saldo = Number(c.resumo.saldo);
+  const aberta = c.status === 'aberta' || c.status === 'aguardando_pagamento';
+  const Icone = c.mesa_numero ? Armchair : c.tipo === 'retirada' ? ShoppingBag : Store;
+  const pedidos = (c.pedidos || []).filter((p) => p.status !== 'cancelado');
+  const abrir = () => navigate(`/admin/contas/${c.id}`);
+
+  return (
+    <article
+      className={`conta-card ${saldo > 0 && aberta ? 'com-saldo' : ''}`}
+      role="link"
+      tabIndex={0}
+      onClick={abrir}
+      onKeyDown={(e) => (e.key === 'Enter' || e.key === ' ') && (e.preventDefault(), abrir())}
+      aria-label={`Abrir conta ${c.id}`}
+    >
+      <header className="conta-card-topo">
+        <span className="conta-icone">
+          <Icone size={18} />
+        </span>
+        <div className="conta-card-titulo">
+          <strong>{tituloConta(c)}</strong>
+          <span className="muted small">
+            Conta #{c.id} · aberta {hora(c.aberta_em)}
+          </span>
+        </div>
+        <Badge status={c.status} />
+      </header>
+
+      <div className="conta-pedidos">
+        {pedidos.length === 0 && <p className="muted small">Nenhum pedido ainda.</p>}
+        {pedidos.map((p) => (
+          <div key={p.id} className="conta-pedido">
+            <div className="conta-pedido-topo">
+              <span>
+                Pedido #{p.id} · {hora(p.created_at)}
+              </span>
+              <Badge status={p.status} />
+              <Badge status={p.pago ? 'paga' : 'pendente'}>{p.pago ? 'Pago' : 'A pagar'}</Badge>
+            </div>
+            <ul>
+              {p.itens
+                .filter((i) => i.status !== 'cancelado')
+                .map((i) => (
+                  <li key={i.id}>
+                    <span>
+                      {i.quantidade}x {i.nome_produto}
+                    </span>
+                    <span>{money(i.subtotal)}</span>
+                  </li>
+                ))}
+            </ul>
+            {onPagar && aberta && !p.pago && ['pronto', 'entregue'].includes(p.status) && (
+              <button
+                className="btn btn-sm btn-pagar"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPagar(p);
+                }}
+              >
+                <CircleDollarSign size={14} /> Confirmar pagamento
+              </button>
+            )}
+          </div>
+        ))}
+      </div>
+
+      <footer className="conta-card-rodape">
+        <div>
+          <span className="muted small">Total {money(c.resumo.total)}</span>
+          <strong className={saldo > 0 ? 'texto-erro' : 'texto-ok'}>
+            {saldo > 0 ? `Saldo ${money(saldo)}` : 'Quitada'}
+          </strong>
+        </div>
+        <Link to={`/admin/contas/${c.id}`} className="btn btn-sm" onClick={(e) => e.stopPropagation()}>
+          Abrir conta <ChevronRight size={14} />
+        </Link>
+      </footer>
+      {c.encerrada_em && <span className="muted small">Encerrada em {dataHora(c.encerrada_em)}</span>}
+    </article>
   );
 }
 
@@ -103,6 +210,9 @@ function ModalNovaConta({ onClose }: { onClose: () => void }) {
   return (
     <Modal titulo="Nova conta sem mesa" onClose={onClose}>
       <form className="form" onSubmit={submit}>
+        <p className="muted small">
+          Use para lançar um pedido pelo caixa. Pedidos feitos pelo cardápio já abrem a conta sozinhos.
+        </p>
         <div className="segmentado">
           <button type="button" className={tipo === 'balcao' ? 'ativo' : ''} onClick={() => setTipo('balcao')}>
             Balcão

@@ -13,13 +13,6 @@ from app.schemas.estabelecimento_schema import (
 CATEGORIAS_FINANCEIRAS_PADRAO = [
     ('Vendas', 'entrada', True),
     ('Outras receitas', 'entrada', False),
-    ('Ingredientes e mercadorias', 'saida', False),
-    ('Energia', 'saida', False),
-    ('Agua', 'saida', False),
-    ('Aluguel', 'saida', False),
-    ('Fornecedores', 'saida', False),
-    ('Salarios', 'saida', False),
-    ('Outras despesas', 'saida', False),
 ]
 
 

@@ -1,3 +1,14 @@
+import {
+  ChartColumn,
+  CircleDollarSign,
+  FileDown,
+  FileSpreadsheet,
+  HandCoins,
+  ReceiptText,
+  ShoppingCart,
+  TrendingUp,
+  Wallet,
+} from 'lucide-react';
 import { useState } from 'react';
 import {
   Bar,
@@ -15,7 +26,7 @@ import { ErrorBox, Loading, Stat, useToast } from '../../components/ui';
 import { useAsync } from '../../hooks/useAsync';
 import { hojeISO, METODO_LABEL, money } from '../../utils/format';
 
-const CORES = { vendas: '#2a7de1', recebido: '#1f9d55', despesas: '#d64545' };
+const CORES = { vendas: '#6366f1', recebido: '#10b981' };
 
 export default function Relatorios() {
   const toast = useToast();
@@ -44,19 +55,26 @@ export default function Relatorios() {
     dia: d.dia.slice(8, 10) + '/' + d.dia.slice(5, 7),
     vendas: Number(d.vendas),
     recebido: Number(d.recebido),
-    despesas: Number(d.despesas),
   }));
 
   return (
     <div>
       <div className="pagina-topo">
-        <h1>Relatórios e extratos</h1>
+        <div className="pagina-titulo">
+          <span className="pagina-icone">
+            <ChartColumn size={22} strokeWidth={1.75} />
+          </span>
+          <div>
+            <h1>Relatórios</h1>
+            <p className="muted small">Vendas, recebimentos e extratos do que entrou</p>
+          </div>
+        </div>
         <div className="acoes">
           <button className="btn" onClick={() => exportar('csv')}>
-            Exportar CSV
+            <FileSpreadsheet size={16} /> Exportar CSV
           </button>
           <button className="btn" onClick={() => exportar('pdf')}>
-            Exportar PDF
+            <FileDown size={16} /> Exportar PDF
           </button>
         </div>
       </div>
@@ -79,7 +97,7 @@ export default function Relatorios() {
           </button>
         </div>
         <select value={metodo} onChange={(e) => setMetodo(e.target.value)}>
-          <option value="">Todos os métodos</option>
+          <option value="">Todas as formas de pagamento</option>
           {Object.entries(METODO_LABEL).map(([k, v]) => (
             <option key={k} value={k}>
               {v}
@@ -95,13 +113,13 @@ export default function Relatorios() {
         r && (
           <>
             <div className="stats">
-              <Stat rotulo="Vendas" valor={money(r.total_vendas)} />
-              <Stat rotulo="Recebido" valor={money(r.total_recebido)} destaque="ok" />
-              <Stat rotulo="Despesas" valor={money(r.total_despesas)} destaque="erro" />
-              <Stat rotulo="Saldo (entradas − saídas)" valor={money(r.saldo)} />
-              <Stat rotulo="A receber" valor={money(r.pendente_recebimento)} />
-              <Stat rotulo="Pedidos" valor={r.quantidade_pedidos} />
-              <Stat rotulo="Ticket médio" valor={money(r.ticket_medio)} />
+              <Stat rotulo="Vendas" valor={money(r.total_vendas)} icone={TrendingUp} destaque="info" />
+              <Stat rotulo="Recebido" valor={money(r.total_recebido)} destaque="ok" icone={Wallet} />
+              <Stat rotulo="Outras entradas" valor={money(r.outras_entradas)} icone={HandCoins} />
+              <Stat rotulo="Total que entrou" valor={money(r.total_entradas)} destaque="ok" icone={Wallet} />
+              <Stat rotulo="A receber" valor={money(r.pendente_recebimento)} icone={CircleDollarSign} destaque="aviso" />
+              <Stat rotulo="Pedidos" valor={r.quantidade_pedidos} icone={ShoppingCart} />
+              <Stat rotulo="Ticket médio" valor={money(r.ticket_medio)} icone={ReceiptText} />
             </div>
 
             <section className="card">
@@ -116,19 +134,17 @@ export default function Relatorios() {
                     <Legend />
                     <Bar dataKey="vendas" name="Vendas" fill={CORES.vendas} />
                     <Bar dataKey="recebido" name="Recebido" fill={CORES.recebido} />
-                    <Bar dataKey="despesas" name="Despesas" fill={CORES.despesas} />
                   </BarChart>
                 </ResponsiveContainer>
               </div>
             </section>
 
-            <div className="grid-3-col">
+            <div className="grid-2-col">
               <Ranking titulo="Produtos mais vendidos" itens={r.produtos_mais_vendidos} mostrarQtd />
               <Ranking
                 titulo="Recebido por método"
                 itens={r.recebido_por_metodo.map((x) => ({ ...x, rotulo: METODO_LABEL[x.rotulo] || x.rotulo }))}
               />
-              <Ranking titulo="Maiores despesas por categoria" itens={r.despesas_por_categoria} />
             </div>
 
             <details className="card">
